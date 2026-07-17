@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { useSimulation } from "@/hooks/use-simulation";
 import { CanvasVisualizer } from "./canvas-visualizer";
+import { AlgorithmChat } from "./algorithm-chat";
 import { AlgorithmId } from "@/types/algorithms";
 import { ALGORITHM_CODES } from "@/lib/algorithm-codes";
 
@@ -835,6 +836,21 @@ export function AlgorithmView({ algorithmId, onBack }: AlgorithmViewProps) {
           </div>
         </div>
       </div>
+
+      {/* Real-time Synchronized AI Assistant */}
+      <AlgorithmChat
+        key={`${algorithmId}-${Array.isArray(inputData) ? inputData.join(",") : ""}`}
+        algorithmId={algorithmId}
+        algorithmName={metadata.name}
+        algorithmType={metadata.type}
+        inputArray={inputData}
+        currentStep={currentStep}
+        totalSteps={events.length || 1}
+        currentStepDescription={
+          currentEvent?.description || "Simulator idle or preparing first step"
+        }
+        pseudocode={metadata.pseudocode}
+      />
     </div>
   );
 }

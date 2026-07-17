@@ -22,6 +22,19 @@ The application adheres to a strict, event-driven simulation boundary:
 2. **The Generators (`/algorithms/generators.ts`)**: Isolated algorithm executors that operate strictly in memory. They do _not_ animate directly; instead, they emit sequential visual events (e.g. `COMPARE`, `SWAP`, `READ`, `WRITE`, `SEND_MESSAGE`, `BARRIER`).
 3. **The Renderer (`/components/canvas-visualizer.tsx`)**: A high-performance, single-canvas visualizer that reads the current active event frame and draws appropriate hardware, processor lattices, arrays, or node networks.
 4. **The Synchronizer (`/components/algorithm-view.tsx`)**: Reaches into the active step and links visual components directly with line highlights inside the pseudocode panel.
+5. **The AI AlgoTutor (`/components/algorithm-chat.tsx` & `/app/api/chat/route.ts`)**: A real-time synchronized companion assistant utilizing server-side Gemini AI. It automatically analyzes the active simulator state (input data, current step details, and algorithm type) to explain exactly what is happening in natural, approachable language.
+
+---
+
+## 🤖 AI AlgoTutor Chatbot
+
+The visualizer features an advanced **AlgoTutor AI** sidebar designed to guide and tutor users:
+
+- **Active State Synchronization**: The chatbot is aware of your active workspace. It dynamically tracks whether you are visualizing an array or a complex graph (mapping A\* heuristics, Dijkstra weights, or BFS connections) alongside the current step and active pseudocode line.
+- **Strict Topic Filtering**: Programmed specifically for computer science education; off-topic questions (e.g., sports, general knowledge) are filtered out with a polite, friendly guiding message.
+- **LaTeX-Free Formatting**: Math formulas and complexities (like Big-O notations) are fully sanitized of raw LaTeX markup and dollar signs, rendering them as clean, human-readable plain text or code blocks.
+- **Graceful Error Handling**: Detects server demand peaks (503s) or rate limits and translates raw JSON exceptions into warm, actionable instructions.
+- **Rich Input Deck**: Features an expandable multiline text area with standard `Shift+Enter` multi-line capabilities and a real-time **500-word count tracker** to maintain concise, optimal learning.
 
 ---
 
@@ -29,25 +42,30 @@ The application adheres to a strict, event-driven simulation boundary:
 
 ```
 ├── app/
-│   ├── globals.css          # Tailwind CSS global styling
-│   ├── layout.tsx           # Global Next.js layout & metadata
-│   └── page.tsx             # Root page, handles view transitions & sidebar state
+│   ├── api/
+│   │   └── chat/
+│   │       └── route.ts      # Gemini API route with strict CS filters and safety guards
+│   ├── globals.css           # Tailwind CSS global styling
+│   ├── layout.tsx            # Global Next.js layout & metadata
+│   └── page.tsx              # Root page, handles view transitions & sidebar state
 ├── components/
-│   ├── algorithm-view.tsx   # Active simulation workstation (panels, logs, tabs)
-│   ├── canvas-visualizer.tsx# Responsive 60fps HTML5 Canvas renderer
-│   ├── dashboard.tsx        # High-end index landing deck (search, cards, metrics)
-│   ├── settings.tsx         # Preferences (core allocation, accessibility filters)
-│   └── sidebar.tsx          # Collapsible vertical navigation rails
+│   ├── algorithm-chat.tsx    # Highly responsive AI tutor drawer & chat interface
+│   ├── algorithm-view.tsx    # Active simulation workstation (panels, logs, tabs)
+│   ├── canvas-visualizer.tsx # Responsive 60fps HTML5 Canvas renderer
+│   ├── dashboard.tsx         # High-end index landing deck (search, cards, metrics)
+│   ├── settings.tsx          # Preferences (core allocation, accessibility filters)
+│   └── sidebar.tsx           # Collapsible vertical navigation rails
 ├── hooks/
-│   └── use-simulation.ts    # Reusable event-driven playback state controller
+│   └── use-simulation.ts     # Reusable event-driven playback state controller
 ├── lib/
-│   ├── algorithm-registry.ts# Static catalog database (descriptions, pseudocode)
-│   └── utils.ts             # CN tailwind helper utilities
+│   ├── algorithm-codes.ts    # Interactive code-block contents
+│   ├── algorithm-registry.ts # Static catalog database (descriptions, pseudocode)
+│   └── utils.ts              # CN tailwind helper utilities
 ├── types/
-│   └── algorithms.ts        # Fully typed interfaces for simulation events
-├── metadata.json            # Application metadata
-├── package.json             # NPM package configurations
-└── README.md                # Platform documentation
+│   └── algorithms.ts         # Fully typed interfaces for simulation events
+├── metadata.json             # Application metadata
+├── package.json              # NPM package configurations
+└── README.md                 # Platform documentation
 ```
 
 ---
@@ -56,8 +74,8 @@ The application adheres to a strict, event-driven simulation boundary:
 
 ### 1. Sequential Engines (RAM Model)
 
-- **Sorting networks**: Bubble Sort, Selection Sort, Insertion Sort, Merge Sort, Quick Sort.
-- **Structures & Traversals**: Binary Search, Breadth-First Search (BFS), Dijkstra's Routing.
+- **Sorting Networks**: Bubble Sort, Selection Sort, Insertion Sort, Merge Sort, Quick Sort.
+- **Structures & Traversals**: Binary Search, Breadth-First Search (BFS), Depth-First Search (DFS), A\* Search, Dijkstra's Routing, Prim's Algorithm, Kruskal's Algorithm.
 
 ### 2. Parallel Engines (PRAM & Distributed Networks)
 

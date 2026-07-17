@@ -55,7 +55,7 @@ export function Dashboard({ onSelectAlgorithm }: DashboardProps) {
       className="flex-1 overflow-y-auto bg-zinc-950 text-zinc-100 p-6 md:p-10 space-y-10"
     >
       {/* Dynamic Animated Hero Section */}
-      <div className="relative overflow-hidden rounded-2xl border border-zinc-900 bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 p-8 md:p-12 shadow-2xl">
+      <div className="relative overflow-hidden rounded-2xl border border-zinc-900 bg-linear-to-br from-zinc-950 via-zinc-900 to-zinc-950 p-8 md:p-12 shadow-2xl">
         <div className="absolute top-0 right-0 h-96 w-96 bg-emerald-500/5 blur-[120px] rounded-full pointer-events-none" />
         <div className="absolute bottom-0 left-10 h-72 w-72 bg-cyan-500/5 blur-[100px] rounded-full pointer-events-none" />
 
