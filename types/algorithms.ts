@@ -85,6 +85,7 @@ export interface SimulationEvent {
   description: string;
   // Payload of visual changes
   indices?: number[]; // indices of array elements being modified or accessed
+  pairs?: [number, number][]; // specific pairs of indices being compared or swapped in parallel
   values?: number[]; // values being written or compared
   processors?: number[]; // processor IDs involved
   from?: number; // message path source
@@ -96,6 +97,8 @@ export interface SimulationEvent {
   queueState?: string[]; // state of the queue/priority queue for BFS/Dijkstra
   matrixCoords?: { r: number; c: number; processorId?: number }[]; // for matrix mult
   arraySnapshot?: number[]; // snapshot of array-based states at this step
+  k?: number; // current bitonic sublist size
+  j?: number; // current comparison spacing / offset
 }
 
 export interface SimulationState {

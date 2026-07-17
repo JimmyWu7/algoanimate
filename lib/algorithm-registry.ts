@@ -585,7 +585,7 @@ export const ALGORITHM_REGISTRY: AlgorithmMetadata[] = [
       "  end for",
       "end procedure",
     ],
-    defaultInputSize: 8,
+    defaultInputSize: 16,
     maxInputSize: 16,
     defaultProcessorCount: 8,
     maxProcessorCount: 16,

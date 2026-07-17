@@ -44,6 +44,7 @@ export function generateEvents(
   id: AlgorithmId,
   input: any,
   processorCount: number = 4,
+  reductionOp: "sum" | "min" | "max" | "product" = "sum",
 ): SimulationEvent[] {
   const events: SimulationEvent[] = [];
   let stepCounter = 0;
@@ -1132,13 +1133,21 @@ export function generateEvents(
 
     // --- PARALLEL ALGORITHMS ---
     case "parallel-reduction": {
-      // In-place parallel tree-based summation
+      // In-place parallel tree-based reduction
+      const opLabelMap: Record<string, string> = {
+        sum: "Sum",
+        min: "Min",
+        max: "Max",
+        product: "Product",
+      };
+      const opLabel = opLabelMap[reductionOp] || "Sum";
+
       const arr = [...input] as number[];
       const n = arr.length;
       emit(
         "HIGHLIGHT",
         0,
-        `Start Parallel Reduction (Sum) on ${n} elements using ${processorCount} processors. Array: ` +
+        `Start Parallel Reduction (${opLabel}) on ${n} elements using ${processorCount} processors. Array: ` +
           arr.join(", "),
         {
           arraySnapshot: [...arr],
@@ -1150,24 +1159,28 @@ export function generateEvents(
       for (let d = 1; d <= depth; d++) {
         const stepSize = Math.pow(2, d);
         const halfStep = Math.pow(2, d - 1);
-        const activeCount = Math.floor(n / stepSize);
 
         const processorsActive: number[] = [];
         const indicesInvolved: number[] = [];
+        const pairs: { targetIdx: number; sourceIdx: number; pId: number }[] =
+          [];
 
-        for (let i = 0; i < activeCount; i++) {
-          const targetIdx = i * stepSize;
+        let activeIdx = 0;
+        for (let targetIdx = 0; targetIdx < n; targetIdx += stepSize) {
           const sourceIdx = targetIdx + halfStep;
           if (sourceIdx < n) {
-            processorsActive.push(i % processorCount);
+            const pId = activeIdx % processorCount;
+            processorsActive.push(pId);
             indicesInvolved.push(targetIdx, sourceIdx);
+            pairs.push({ targetIdx, sourceIdx, pId });
+            activeIdx++;
           }
         }
 
         emit(
           "HIGHLIGHT",
           1,
-          `Level ${d}: Concurrently activating ${activeCount} tree lanes`,
+          `Level ${d}: Concurrently activating ${pairs.length} tree lanes`,
           {
             processors: processorsActive,
             indices: indicesInvolved,
@@ -1175,47 +1188,61 @@ export function generateEvents(
           },
         );
 
-        // Simulating the addition
-        for (let i = 0; i < activeCount; i++) {
-          const targetIdx = i * stepSize;
-          const sourceIdx = targetIdx + halfStep;
-          if (sourceIdx < n) {
-            const pId = i % processorCount;
+        // Simulating the reduction operation
+        for (const pair of pairs) {
+          const { targetIdx, sourceIdx, pId } = pair;
+          const val1 = arr[targetIdx];
+          const val2 = arr[sourceIdx];
 
-            emit(
-              "SEND_MESSAGE",
-              3,
-              `Processor P_${pId} reads values at index ${targetIdx} (${arr[targetIdx]}) and index ${sourceIdx} (${arr[sourceIdx]})`,
-              {
-                processors: [pId],
-                indices: [targetIdx, sourceIdx],
-                from: sourceIdx,
-                to: targetIdx,
-                msg: arr[sourceIdx],
-                arraySnapshot: [...arr],
-              },
-            );
+          emit(
+            "SEND_MESSAGE",
+            3,
+            `Processor P_${pId} reads values at index ${targetIdx} (${val1}) and index ${sourceIdx} (${val2})`,
+            {
+              processors: [pId],
+              indices: [targetIdx, sourceIdx],
+              from: sourceIdx,
+              to: targetIdx,
+              msg: val2,
+              arraySnapshot: [...arr],
+            },
+          );
 
-            arr[targetIdx] += arr[sourceIdx];
-
-            emit(
-              "WRITE",
-              3,
-              `Processor P_${pId} stores the sum ${arr[targetIdx]} at index ${targetIdx}`,
-              {
-                processors: [pId],
-                indices: [targetIdx],
-                values: [...arr],
-                arraySnapshot: [...arr],
-              },
-            );
+          let resultVal = val1;
+          let actionDesc = "";
+          if (reductionOp === "sum") {
+            resultVal = val1 + val2;
+            actionDesc = `sum ${val1} + ${val2} = ${resultVal}`;
+          } else if (reductionOp === "min") {
+            resultVal = Math.min(val1, val2);
+            actionDesc = `minimum of (${val1}, ${val2}) = ${resultVal}`;
+          } else if (reductionOp === "max") {
+            resultVal = Math.max(val1, val2);
+            actionDesc = `maximum of (${val1}, ${val2}) = ${resultVal}`;
+          } else if (reductionOp === "product") {
+            resultVal = val1 * val2;
+            actionDesc = `product ${val1} * ${val2} = ${resultVal}`;
           }
+
+          arr[targetIdx] = resultVal;
+
+          emit(
+            "WRITE",
+            3,
+            `Processor P_${pId} stores the ${actionDesc} at index ${targetIdx}`,
+            {
+              processors: [pId],
+              indices: [targetIdx],
+              values: [...arr],
+              arraySnapshot: [...arr],
+            },
+          );
         }
 
         emit(
           "BARRIER",
           5,
-          `Barrier hit: Synchronizing all processors at the end of Level ${d}. Sums merged.`,
+          `Barrier hit: Synchronizing all processors at the end of Level ${d}. Values merged.`,
           {
             indices: Array.from({ length: n }, (_, idx) => idx),
             arraySnapshot: [...arr],
@@ -1223,7 +1250,7 @@ export function generateEvents(
         );
       }
 
-      emit("HIGHLIGHT", 7, `Reduction finished. Total Sum: ${arr[0]}`, {
+      emit("HIGHLIGHT", 7, `Reduction finished. Total ${opLabel}: ${arr[0]}`, {
         indices: [0],
         arraySnapshot: [...arr],
       });
@@ -1232,12 +1259,20 @@ export function generateEvents(
 
     case "parallel-prefix-sum": {
       // Hillis-Steele prefix scan
+      const opLabelMap: Record<string, string> = {
+        sum: "Sum",
+        min: "Min",
+        max: "Max",
+        product: "Product",
+      };
+      const opLabel = opLabelMap[reductionOp] || "Sum";
+
       const arr = [...input] as number[];
       const n = arr.length;
       emit(
         "HIGHLIGHT",
         0,
-        `Start Hillis-Steele Parallel Prefix Sum on ${n} items using ${processorCount} processors. Array: ` +
+        `Start Hillis-Steele Parallel Prefix ${opLabel} on ${n} items using ${processorCount} processors. Array: ` +
           arr.join(", "),
         {
           arraySnapshot: [...arr],
@@ -1272,11 +1307,31 @@ export function generateEvents(
         for (let i = 0; i < n; i++) {
           const pId = i % processorCount;
           if (i >= offset) {
-            temp[i] = arr[i] + arr[i - offset];
+            const val1 = arr[i];
+            const val2 = arr[i - offset];
+            let resultVal = val1;
+            let actionDesc = "";
+
+            if (reductionOp === "sum") {
+              resultVal = val1 + val2;
+              actionDesc = `sum ${val1} + ${val2} = ${resultVal}`;
+            } else if (reductionOp === "min") {
+              resultVal = Math.min(val1, val2);
+              actionDesc = `minimum of (${val1}, ${val2}) = ${resultVal}`;
+            } else if (reductionOp === "max") {
+              resultVal = Math.max(val1, val2);
+              actionDesc = `maximum of (${val1}, ${val2}) = ${resultVal}`;
+            } else if (reductionOp === "product") {
+              resultVal = val1 * val2;
+              actionDesc = `product ${val1} * ${val2} = ${resultVal}`;
+            }
+
+            temp[i] = resultVal;
+
             emit(
               "READ",
               5,
-              `Processor P_${pId} reads A[${i}] (${arr[i]}) and A[${i - offset}] (${arr[i - offset]})`,
+              `Processor P_${pId} reads A[${i}] (${val1}) and A[${i - offset}] (${val2})`,
               {
                 processors: [pId],
                 indices: [i, i - offset],
@@ -1286,7 +1341,7 @@ export function generateEvents(
             emit(
               "WRITE",
               5,
-              `Processor P_${pId} writes sum ${temp[i]} to temp[${i}]`,
+              `Processor P_${pId} writes ${actionDesc} to temp[${i}]`,
               {
                 processors: [pId],
                 indices: [i],
@@ -1316,7 +1371,7 @@ export function generateEvents(
         emit(
           "BARRIER",
           10,
-          `Barrier hit: Copying temp back to active list and synchronizing. Current sums: ` +
+          `Barrier hit: Copying temp back to active list and synchronizing. Current results: ` +
             arr.join(", "),
           {
             indices: Array.from({ length: n }, (_, idx) => idx),
@@ -1329,7 +1384,7 @@ export function generateEvents(
       emit(
         "HIGHLIGHT",
         12,
-        `Parallel Prefix Sum completed successfully! Final values: ` +
+        `Parallel Prefix ${opLabel} completed successfully! Final values: ` +
           arr.join(", "),
         {
           indices: Array.from({ length: n }, (_, idx) => idx),
@@ -1360,16 +1415,20 @@ export function generateEvents(
           `Outer Phase: Constructing/sorting bitonic sublists of size ${k}`,
           {
             arraySnapshot: [...arr],
+            k,
           },
         );
 
         for (let j = k / 2; j >= 1; j = Math.floor(j / 2)) {
           emit("HIGHLIGHT", 2, `Sub-stage: comparing pairs spaced by ${j}`, {
             arraySnapshot: [...arr],
+            k,
+            j,
           });
 
           const processorsActive: number[] = [];
           const indicesCompared: number[] = [];
+          const pairsToCompare: [number, number][] = [];
 
           // Pre-scan pairs to show highlight
           for (let i = 0; i < n; i++) {
@@ -1377,77 +1436,80 @@ export function generateEvents(
             if (ixj > i) {
               processorsActive.push(i % processorCount);
               indicesCompared.push(i, ixj);
+              pairsToCompare.push([i, ixj]);
             }
           }
 
-          emit("HIGHLIGHT", 3, `Comparing and sorting pairs spaced by ${j}`, {
-            processors: processorsActive,
-            indices: indicesCompared,
-            arraySnapshot: [...arr],
-          });
+          emit(
+            "COMPARE",
+            5,
+            `All active processors perform comparisons on pairs spaced by ${j} in parallel`,
+            {
+              processors: Array.from(new Set(processorsActive)),
+              indices: indicesCompared,
+              pairs: pairsToCompare,
+              arraySnapshot: [...arr],
+              k,
+              j,
+            },
+          );
+
+          const processorsSwapping: number[] = [];
+          const indicesSwapped: number[] = [];
+          const pairsToSwap: [number, number][] = [];
 
           for (let i = 0; i < n; i++) {
             const ixj = i ^ j;
             if (ixj > i) {
-              const pId = i % processorCount;
               const ascending = (i & k) === 0;
+              let shouldSwap = false;
+              if (ascending && arr[i] > arr[ixj]) {
+                shouldSwap = true;
+              } else if (!ascending && arr[i] < arr[ixj]) {
+                shouldSwap = true;
+              }
 
-              emit(
-                "COMPARE",
-                5,
-                `P_${pId} compares A[${i}] (${arr[i]}) and A[${ixj}] (${arr[ixj]}). Mode: ${ascending ? "Ascending" : "Descending"}`,
-                {
-                  processors: [pId],
-                  indices: [i, ixj],
-                  arraySnapshot: [...arr],
-                },
-              );
-
-              if (ascending) {
-                if (arr[i] > arr[ixj]) {
-                  const temp = arr[i];
-                  arr[i] = arr[ixj];
-                  arr[ixj] = temp;
-                  emit(
-                    "SWAP",
-                    6,
-                    `P_${pId} swaps values to maintain ascending order`,
-                    {
-                      processors: [pId],
-                      indices: [i, ixj],
-                      values: [...arr],
-                      arraySnapshot: [...arr],
-                    },
-                  );
-                }
-              } else {
-                if (arr[i] < arr[ixj]) {
-                  const temp = arr[i];
-                  arr[i] = arr[ixj];
-                  arr[ixj] = temp;
-                  emit(
-                    "SWAP",
-                    6,
-                    `P_${pId} swaps values to maintain descending order`,
-                    {
-                      processors: [pId],
-                      indices: [i, ixj],
-                      values: [...arr],
-                      arraySnapshot: [...arr],
-                    },
-                  );
-                }
+              if (shouldSwap) {
+                processorsSwapping.push(i % processorCount);
+                indicesSwapped.push(i, ixj);
+                pairsToSwap.push([i, ixj]);
               }
             }
+          }
+
+          if (pairsToSwap.length > 0) {
+            // Apply all swaps in parallel
+            for (const [u, v] of pairsToSwap) {
+              const temp = arr[u];
+              arr[u] = arr[v];
+              arr[v] = temp;
+            }
+
+            emit(
+              "SWAP",
+              6,
+              `Active processors swap out-of-order values to satisfy directional ordering in parallel`,
+              {
+                processors: Array.from(new Set(processorsSwapping)),
+                indices: indicesSwapped,
+                pairs: pairsToSwap,
+                values: [...arr],
+                arraySnapshot: [...arr],
+                k,
+                j,
+              },
+            );
           }
 
           emit(
             "BARRIER",
             10,
-            `Barrier: Completed sub-stage spaced by ${j}. Synchronizing processors.`,
+            `Barrier: Completed parallel sub-stage spaced by ${j}. Synchronizing processors.`,
             {
               indices: Array.from({ length: n }, (_, idx) => idx),
               arraySnapshot: [...arr],
+              k,
+              j,
             },
           );
         }

@@ -26,6 +26,8 @@ interface MessagePacket {
   progress: number; // 0 to 1
   label: string;
   color: string;
+  cpX?: number;
+  cpY?: number;
 }
 
 export function CanvasVisualizer({
@@ -85,6 +87,107 @@ export function CanvasVisualizer({
     return { pX, pY, memX, memY };
   };
 
+  const getHypercubeNodeCoords = (
+    i: number,
+    N: number,
+    w: number,
+    h: number,
+  ) => {
+    const cY = h / 2 + 50;
+    const isBitonic = algorithmId === "bitonic-sort";
+    if (N <= 8 && !isBitonic) {
+      const cX = w / 2;
+      const sizeX = 140;
+      const sizeY = 140;
+      const offset3D = 40;
+
+      const positions = [
+        { x: cX - sizeX / 2, y: cY - sizeY / 2 }, // 0000 (0)
+        { x: cX - sizeX / 2, y: cY + sizeY / 2 }, // 0001 (1)
+        { x: cX + sizeX / 2, y: cY - sizeY / 2 }, // 0010 (2)
+        { x: cX + sizeX / 2, y: cY + sizeY / 2 }, // 0011 (3)
+        { x: cX - sizeX / 2 + offset3D, y: cY - sizeY / 2 - offset3D }, // 0100 (4)
+        { x: cX - sizeX / 2 + offset3D, y: cY + sizeY / 2 - offset3D }, // 0101 (5)
+        { x: cX + sizeX / 2 + offset3D, y: cY - sizeY / 2 - offset3D }, // 0110 (6)
+        { x: cX + sizeX / 2 + offset3D, y: cY + sizeY / 2 - offset3D }, // 0111 (7)
+      ];
+      return positions[i % 8];
+    } else {
+      const leftCX = w / 2 - 145;
+      const rightCX = w / 2 + 145;
+      const sizeX = 100;
+      const sizeY = 100;
+      const offset3D = 30;
+
+      const isLeft = i < 8;
+      const cX = isLeft ? leftCX : rightCX;
+      const idxInCube = i % 8;
+
+      const positions = [
+        { x: cX - sizeX / 2, y: cY - sizeY / 2 }, // x000
+        { x: cX - sizeX / 2, y: cY + sizeY / 2 }, // x001
+        { x: cX + sizeX / 2, y: cY - sizeY / 2 }, // x010
+        { x: cX + sizeX / 2, y: cY + sizeY / 2 }, // x011
+        { x: cX - sizeX / 2 + offset3D, y: cY - sizeY / 2 - offset3D }, // x100
+        { x: cX - sizeX / 2 + offset3D, y: cY + sizeY / 2 - offset3D }, // x101
+        { x: cX + sizeX / 2 + offset3D, y: cY - sizeY / 2 - offset3D }, // x110
+        { x: cX + sizeX / 2 + offset3D, y: cY + sizeY / 2 - offset3D }, // x111
+      ];
+      return positions[idxInCube];
+    }
+  };
+
+  const getHypercubeEdges = (N: number) => {
+    const isBitonic = algorithmId === "bitonic-sort";
+    const edges: [number, number][] = [];
+    const effectiveN = isBitonic ? 16 : N;
+
+    // Left cube edges (0..7)
+    const leftBase = [
+      // Front face
+      [0, 1],
+      [0, 2],
+      [1, 3],
+      [2, 3],
+      // Back face
+      [4, 5],
+      [4, 6],
+      [5, 7],
+      [6, 7],
+      // Connections between front and back
+      [0, 4],
+      [1, 5],
+      [2, 6],
+      [3, 7],
+    ] as [number, number][];
+
+    leftBase.forEach(([u, v]) => {
+      if (u < effectiveN && v < effectiveN) {
+        edges.push([u, v]);
+      }
+    });
+
+    if (effectiveN > 8) {
+      // Add right cube edges (8..15)
+      leftBase.forEach(([u, v]) => {
+        const ru = u + 8;
+        const rv = v + 8;
+        if (ru < effectiveN && rv < effectiveN) {
+          edges.push([ru, rv]);
+        }
+      });
+
+      // Add cross-connections between left and right (0..7 <-> 8..15)
+      for (let i = 0; i < 8; i++) {
+        if (i < effectiveN && i + 8 < effectiveN) {
+          edges.push([i, i + 8]);
+        }
+      }
+    }
+
+    return edges;
+  };
+
   const getPacketEndpoints = (
     from: number,
     to: number,
@@ -112,28 +215,10 @@ export function CanvasVisualizer({
     }
 
     if (topology === "Hypercube") {
-      // 8-node perspective projected coords
-      const getHypercubeCoords = (id: number) => {
-        const sizeX = 140;
-        const sizeY = 140;
-        const offset3D = 40;
-        const cX = w / 2;
-        const cY = h / 2;
-        const positions = [
-          { x: cX - sizeX / 2, y: cY - sizeY / 2 },
-          { x: cX + sizeX / 2, y: cY - sizeY / 2 },
-          { x: cX + sizeX / 2, y: cY + sizeY / 2 },
-          { x: cX - sizeX / 2, y: cY + sizeY / 2 },
-          { x: cX - sizeX / 2 + offset3D, y: cY - sizeY / 2 - offset3D },
-          { x: cX + sizeX / 2 + offset3D, y: cY - sizeY / 2 - offset3D },
-          { x: cX + sizeX / 2 + offset3D, y: cY + sizeY / 2 - offset3D },
-          { x: cX - sizeX / 2 + offset3D, y: cY + sizeY / 2 - offset3D },
-        ];
-        const pos = positions[id % 8];
-        return pos;
-      };
-      const fC = getHypercubeCoords(from);
-      const tC = getHypercubeCoords(to);
+      const isBitonic = algorithmId === "bitonic-sort";
+      const arrSize = isBitonic ? 16 : Array.isArray(data) ? data.length : 8;
+      const fC = getHypercubeNodeCoords(from, arrSize, w, h);
+      const tC = getHypercubeNodeCoords(to, arrSize, w, h);
       return { fromX: fC.x, fromY: fC.y, toX: tC.x, toY: tC.y };
     }
 
@@ -604,98 +689,209 @@ export function CanvasVisualizer({
     w: number,
     h: number,
   ) => {
-    // 8-node hypercube
     const data = ((currentEvent?.arraySnapshot || inputData) as number[]) || [];
-    const sizeX = 140;
-    const sizeY = 140;
-    const offset3D = 45;
-    const cX = w / 2;
-    const cY = h / 2;
-
-    const positions = [
-      { x: cX - sizeX / 2, y: cY - sizeY / 2 },
-      { x: cX + sizeX / 2, y: cY - sizeY / 2 },
-      { x: cX + sizeX / 2, y: cY + sizeY / 2 },
-      { x: cX - sizeX / 2, y: cY + sizeY / 2 },
-      { x: cX - sizeX / 2 + offset3D, y: cY - sizeY / 2 - offset3D },
-      { x: cX + sizeX / 2 + offset3D, y: cY - sizeY / 2 - offset3D },
-      { x: cX + sizeX / 2 + offset3D, y: cY + sizeY / 2 - offset3D },
-      { x: cX - sizeX / 2 + offset3D, y: cY + sizeY / 2 - offset3D },
-    ];
+    const isBitonic = algorithmId === "bitonic-sort";
+    const N = isBitonic ? 16 : data.length || 8;
 
     ctx.font = "11px var(--font-mono, monospace)";
     ctx.fillStyle = "#52525b";
     ctx.fillText(
-      "COMPUTATIONAL MODEL: HYPERCUBE DIMENSION 3 INTERCONNECT",
+      N <= 8
+        ? "COMPUTATIONAL MODEL: HYPERCUBE DIMENSION 3 INTERCONNECT"
+        : "COMPUTATIONAL MODEL: HYPERCUBE DIMENSION 4 INTERCONNECT (TESSERACT)",
       40,
       40,
     );
 
-    // Draw interconnect cables
-    ctx.strokeStyle = "#3f3f46"; // Brighter gray interconnect lines
-    ctx.lineWidth = 1.5;
+    if (isBitonic) {
+      const kVal = currentEvent?.k;
+      const jVal = currentEvent?.j;
 
-    // Draw front square
-    ctx.beginPath();
-    ctx.moveTo(positions[0].x, positions[0].y);
-    ctx.lineTo(positions[1].x, positions[1].y);
-    ctx.lineTo(positions[2].x, positions[2].y);
-    ctx.lineTo(positions[3].x, positions[3].y);
-    ctx.closePath();
-    ctx.stroke();
+      // Draw a neat horizontal bar or some labeled status boxes
+      ctx.fillStyle = "#09090b"; // Zinc 950
+      ctx.strokeStyle = "#27272a"; // Zinc 800
+      ctx.lineWidth = 1.5;
 
-    // Draw back square
-    ctx.beginPath();
-    ctx.moveTo(positions[4].x, positions[4].y);
-    ctx.lineTo(positions[5].x, positions[5].y);
-    ctx.lineTo(positions[6].x, positions[6].y);
-    ctx.lineTo(positions[7].x, positions[7].y);
-    ctx.closePath();
-    ctx.stroke();
-
-    // Connect corners
-    for (let i = 0; i < 4; i++) {
+      // Card 1 for k
       ctx.beginPath();
-      ctx.moveTo(positions[i].x, positions[i].y);
-      ctx.lineTo(positions[i + 4].x, positions[i + 4].y);
+      ctx.roundRect(40, 55, 170, 44, 6);
+      ctx.fill();
       ctx.stroke();
+
+      // Card 2 for j
+      ctx.beginPath();
+      ctx.roundRect(220, 55, 170, 44, 6);
+      ctx.fill();
+      ctx.stroke();
+
+      // Write text inside card 1
+      ctx.fillStyle = "#71717a"; // Zinc 500
+      ctx.font = "9px var(--font-mono, monospace)";
+      ctx.fillText("STAGE SIZE (k)", 48, 68);
+
+      ctx.fillStyle = kVal !== undefined ? "#a78bfa" : "#3f3f46"; // Purple 400 vs Zinc 700
+      ctx.font = "bold 13px var(--font-mono, monospace)";
+      ctx.fillText(kVal !== undefined ? `k = ${kVal}` : "k = —", 48, 87);
+
+      // Write text inside card 2
+      ctx.fillStyle = "#71717a"; // Zinc 500
+      ctx.font = "9px var(--font-mono, monospace)";
+      ctx.fillText("COMPARE STRIDE (j)", 228, 68);
+
+      ctx.fillStyle = jVal !== undefined ? "#38bdf8" : "#3f3f46"; // Sky 400 vs Zinc 700
+      ctx.font = "bold 13px var(--font-mono, monospace)";
+      ctx.fillText(jVal !== undefined ? `j = ${jVal}` : "j = —", 228, 87);
+
+      // Add educational description text on the right of the cards
+      ctx.fillStyle = "#52525b"; // Zinc 600
+      ctx.font = "10px var(--font-sans, sans-serif)";
+      ctx.fillText(
+        "• k: Size of bitonic sublists currently being constructed & sorted.",
+        405,
+        70,
+      );
+      ctx.fillText(
+        "• j: Comparison step stride (distance/offset between paired node address bits).",
+        405,
+        86,
+      );
     }
 
-    // Draw node modules
-    positions.forEach((pos, idx) => {
-      const val = data[idx] !== undefined ? data[idx] : 0;
-      const isVisited = currentEvent?.indices?.includes(idx);
-      let border = "#52525b"; // Brighter gray node border
-      let backColor = "#09090b";
-      let fontColor = "#d4d4d8";
+    // Get all edges
+    const edges = getHypercubeEdges(N);
 
-      if (isVisited) {
+    // Draw interconnect cables
+    edges.forEach(([u, v]) => {
+      const posU = getHypercubeNodeCoords(u, N, w, h);
+      const posV = getHypercubeNodeCoords(v, N, w, h);
+
+      // Highlight comparing or swapping edges
+      const isEdgeInPairs = currentEvent?.pairs?.some(
+        ([pu, pv]: [number, number]) =>
+          (pu === u && pv === v) || (pu === v && pv === u),
+      );
+      const isCompare =
+        currentEvent?.type === "COMPARE" &&
+        (isEdgeInPairs !== undefined
+          ? isEdgeInPairs
+          : currentEvent.indices?.includes(u) &&
+            currentEvent.indices?.includes(v));
+      const isSwap =
+        currentEvent?.type === "SWAP" &&
+        (isEdgeInPairs !== undefined
+          ? isEdgeInPairs
+          : currentEvent.indices?.includes(u) &&
+            currentEvent.indices?.includes(v));
+
+      ctx.beginPath();
+      const isCross =
+        isBitonic && ((u < 8 && v === u + 8) || (v < 8 && u === v + 8));
+
+      if (isCross) {
+        const leftNode = u < v ? u : v;
+        const leftPos = u < v ? posU : posV;
+        const rightPos = u < v ? posV : posU;
+
+        const midX = (leftPos.x + rightPos.x) / 2;
+        const midY = (leftPos.y + rightPos.y) / 2;
+
+        const isTop = [0, 2, 4, 6].includes(leftNode);
+        let curveOffset = 40;
+        if (leftNode === 0 || leftNode === 1) curveOffset = 40;
+        else if (leftNode === 2 || leftNode === 3) curveOffset = 25;
+        else if (leftNode === 4 || leftNode === 5) curveOffset = 55;
+        else if (leftNode === 6 || leftNode === 7) curveOffset = 70;
+
+        const cpX = midX;
+        const cpY = isTop ? midY - curveOffset : midY + curveOffset;
+
+        ctx.moveTo(leftPos.x, leftPos.y);
+        ctx.quadraticCurveTo(cpX, cpY, rightPos.x, rightPos.y);
+      } else {
+        ctx.moveTo(posU.x, posU.y);
+        ctx.lineTo(posV.x, posV.y);
+      }
+
+      if (isSwap) {
+        ctx.strokeStyle = "#f43f5e"; // Rose 500
+        ctx.lineWidth = 3;
+      } else if (isCompare) {
+        ctx.strokeStyle = "#f59e0b"; // Amber 500
+        ctx.lineWidth = 3;
+      } else {
+        ctx.strokeStyle = "#3f3f46"; // Default Zinc 700
+        ctx.lineWidth = 1.5;
+      }
+      ctx.stroke();
+    });
+
+    // Draw node modules
+    for (let idx = 0; idx < N; idx++) {
+      const pos = getHypercubeNodeCoords(idx, N, w, h);
+      const hasValue = idx < data.length;
+      const val = hasValue ? data[idx] : undefined;
+      const isVisited = hasValue && currentEvent?.indices?.includes(idx);
+
+      const isCompare = currentEvent?.type === "COMPARE" && isVisited;
+      const isSwap = currentEvent?.type === "SWAP" && isVisited;
+
+      let border = hasValue ? "#52525b" : "#27272a"; // Brighter gray node border vs dashed/dimmed border
+      let backColor = "#09090b";
+      let fontColor = hasValue ? "#d4d4d8" : "#3f3f46";
+      let shadowColor = "transparent";
+
+      if (isSwap) {
+        border = "#f43f5e"; // Rose
+        backColor = "#f43f5e15";
+        fontColor = "#fda4af";
+        shadowColor = "#f43f5e30";
+      } else if (isCompare) {
+        border = "#f59e0b"; // Amber
+        backColor = "#f59e0b15";
+        fontColor = "#fbbf24";
+        shadowColor = "#f59e0b30";
+      } else if (isVisited) {
         border = "#fbbf24";
         backColor = "#f59e0b10";
         fontColor = "#fbbf24";
       }
 
+      if (shadowColor !== "transparent") {
+        ctx.shadowColor = shadowColor;
+        ctx.shadowBlur = 8;
+      }
       ctx.fillStyle = backColor;
       ctx.beginPath();
       ctx.arc(pos.x, pos.y, 18, 0, 2 * Math.PI);
       ctx.fill();
+      ctx.shadowBlur = 0; // reset
 
       ctx.strokeStyle = border;
+      if (!hasValue) {
+        ctx.setLineDash([3, 3]); // dashed style for empty tesseract nodes
+      }
       ctx.lineWidth = isVisited ? 3 : 1.5;
       ctx.stroke();
+      ctx.setLineDash([]); // reset
 
-      // Node core address
-      ctx.fillStyle = "#a1a1aa"; // Brighter gray address label
-      ctx.font = "6.5px var(--font-mono, monospace)";
+      // Node core address (always 4 bits representation as requested!)
+      ctx.fillStyle = hasValue ? "#a1a1aa" : "#52525b"; // Brighter gray address label vs dimmed
+      ctx.font = "bold 7px var(--font-mono, monospace)";
       ctx.textAlign = "center";
-      ctx.fillText(idx.toString(2).padStart(3, "0"), pos.x, pos.y - 4);
+      ctx.fillText(
+        idx.toString(2).padStart(4, "0"),
+        pos.x,
+        pos.y - (hasValue ? 4 : 0),
+      );
 
       // Node value
-      ctx.fillStyle = fontColor;
-      ctx.font = "bold 11px var(--font-sans, sans-serif)";
-      ctx.fillText(String(val), pos.x, pos.y + 6);
-      ctx.textAlign = "left";
-    });
+      if (hasValue && val !== undefined) {
+        ctx.fillStyle = fontColor;
+        ctx.font = "bold 11px var(--font-sans, sans-serif)";
+        ctx.fillText(String(val), pos.x, pos.y + 6);
+      }
+    }
+    ctx.textAlign = "left";
   };
 
   const renderTreeLayout = (
@@ -1407,25 +1603,35 @@ export function CanvasVisualizer({
 
   const renderPackets = (ctx: CanvasRenderingContext2D) => {
     packets.forEach((p) => {
-      const currX = p.fromX + (p.toX - p.fromX) * p.progress;
-      const currY = p.fromY + (p.toY - p.fromY) * p.progress;
+      let currX = p.fromX + (p.toX - p.fromX) * p.progress;
+      let currY = p.fromY + (p.toY - p.fromY) * p.progress;
+
+      if (p.cpX !== undefined && p.cpY !== undefined) {
+        const t = p.progress;
+        const mt = 1 - t;
+        currX = mt * mt * p.fromX + 2 * mt * t * p.cpX + t * t * p.toX;
+        currY = mt * mt * p.fromY + 2 * mt * t * p.cpY + t * t * p.toY;
+      }
 
       // Pulse glow shadow for active floating packet
       ctx.shadowColor = p.color;
-      ctx.shadowBlur = 8;
+      ctx.shadowBlur = 10;
 
       ctx.fillStyle = p.color;
       ctx.beginPath();
-      ctx.arc(currX, currY, 7, 0, 2 * Math.PI);
+      // Increased radius from 7 to 15 for better readability
+      ctx.arc(currX, currY, 14, 0, 2 * Math.PI);
       ctx.fill();
 
       ctx.shadowBlur = 0; // reset shadow
 
-      // Tiny overlay packet text label
-      ctx.fillStyle = "#000000";
-      ctx.font = "bold 7px var(--font-mono, monospace)";
+      // Better contrasted text label
+      ctx.fillStyle = "#09090b"; // Deep black/zinc-950 for high contrast
+      ctx.font = "bold 8px var(--font-mono, monospace)";
       ctx.textAlign = "center";
-      ctx.fillText(p.label, currX, currY + 2.5);
+      ctx.textBaseline = "middle";
+      ctx.fillText(p.label, currX, currY);
+      ctx.textBaseline = "alphabetic"; // reset to default
       ctx.textAlign = "left";
     });
   };
@@ -1463,6 +1669,43 @@ export function CanvasVisualizer({
           inputData,
         );
         if (coords) {
+          const u = currentEvent.from;
+          const v = currentEvent.to;
+          const isBitonic = algorithmId === "bitonic-sort";
+          const isCross =
+            isBitonic && ((u < 8 && v === u + 8) || (v < 8 && u === v + 8));
+
+          let cpX: number | undefined;
+          let cpY: number | undefined;
+
+          if (isCross) {
+            const leftNode = u < v ? u : v;
+            const leftPos = getHypercubeNodeCoords(
+              u < v ? u : v,
+              16,
+              width,
+              height,
+            );
+            const rightPos = getHypercubeNodeCoords(
+              u < v ? v : u,
+              16,
+              width,
+              height,
+            );
+            const midX = (leftPos.x + rightPos.x) / 2;
+            const midY = (leftPos.y + rightPos.y) / 2;
+
+            const isTop = [0, 2, 4, 6].includes(leftNode);
+            let curveOffset = 40;
+            if (leftNode === 0 || leftNode === 1) curveOffset = 40;
+            else if (leftNode === 2 || leftNode === 3) curveOffset = 25;
+            else if (leftNode === 4 || leftNode === 5) curveOffset = 55;
+            else if (leftNode === 6 || leftNode === 7) curveOffset = 70;
+
+            cpX = midX;
+            cpY = isTop ? midY - curveOffset : midY + curveOffset;
+          }
+
           newPackets.push({
             fromX: coords.fromX,
             fromY: coords.fromY,
@@ -1471,6 +1714,8 @@ export function CanvasVisualizer({
             progress: 0,
             label: String(currentEvent.msg || "MSG"),
             color: "#10b981", // emerald
+            cpX,
+            cpY,
           });
         }
       } else if (

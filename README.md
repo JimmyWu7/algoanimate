@@ -39,7 +39,6 @@ The application adheres to a strict, event-driven simulation boundary:
 │   ├── settings.tsx         # Preferences (core allocation, accessibility filters)
 │   └── sidebar.tsx          # Collapsible vertical navigation rails
 ├── hooks/
-│   ├── use-mobile.ts        # Responsive window screen helper
 │   └── use-simulation.ts    # Reusable event-driven playback state controller
 ├── lib/
 │   ├── algorithm-registry.ts# Static catalog database (descriptions, pseudocode)

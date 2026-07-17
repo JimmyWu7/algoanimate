@@ -21,8 +21,19 @@ export function useSimulation(
   const [events, setEvents] = useState<SimulationEvent[]>([]);
   const [currentStep, setCurrentStep] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [reductionOp, setReductionOp] = useState<
+    "sum" | "min" | "max" | "product"
+  >("sum");
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastUploadedDataRef = useRef<any>(null);
+  const prevAlgorithmIdRef = useRef<AlgorithmId>(algorithmId);
+  const inputDataRef = useRef<any>(null);
+
+  // Keep inputDataRef up to date
+  useEffect(() => {
+    inputDataRef.current = inputData;
+  }, [inputData]);
 
   // Generate default input data based on type and size
   const generateNewInput = useCallback((size: number, id: AlgorithmId) => {
@@ -45,6 +56,22 @@ export function useSimulation(
 
   // Initialize input data
   useEffect(() => {
+    // Reset uploaded data ref on algorithm change
+    if (prevAlgorithmIdRef.current !== algorithmId) {
+      prevAlgorithmIdRef.current = algorithmId;
+      lastUploadedDataRef.current = null;
+    }
+
+    // If this run is due to an explicit uploadInput call (which matches inputSize and customData), skip regeneration.
+    if (
+      lastUploadedDataRef.current &&
+      lastUploadedDataRef.current === inputDataRef.current &&
+      inputDataRef.current?.length === inputSize
+    ) {
+      lastUploadedDataRef.current = null;
+      return;
+    }
+
     const timer = setTimeout(() => {
       const newInput = generateNewInput(inputSize, algorithmId);
       setInputData(newInput);
@@ -58,13 +85,25 @@ export function useSimulation(
   useEffect(() => {
     const timer = setTimeout(() => {
       const data = inputData || generateNewInput(inputSize, algorithmId);
-      const evs = generateEvents(algorithmId, data, processorCount);
+      const evs = generateEvents(
+        algorithmId,
+        data,
+        processorCount,
+        reductionOp,
+      );
       setEvents(evs);
       setCurrentStep(0);
       setIsPlaying(false);
     }, 0);
     return () => clearTimeout(timer);
-  }, [algorithmId, inputData, processorCount, inputSize, generateNewInput]);
+  }, [
+    algorithmId,
+    inputData,
+    processorCount,
+    inputSize,
+    generateNewInput,
+    reductionOp,
+  ]);
 
   // Map slider speed to millisecond delay (higher speed = shorter delay)
   const getDelay = useCallback(() => {
@@ -148,6 +187,7 @@ export function useSimulation(
 
   // Custom input loader
   const uploadInput = useCallback((customData: any) => {
+    lastUploadedDataRef.current = customData;
     setInputData(customData);
     setCurrentStep(0);
     setIsPlaying(false);
@@ -226,6 +266,8 @@ export function useSimulation(
     events,
     currentStep,
     isPlaying,
+    reductionOp,
+    setReductionOp,
     stepForward,
     stepBackward,
     jumpToStep,

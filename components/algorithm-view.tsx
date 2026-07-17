@@ -57,6 +57,7 @@ export function AlgorithmView({ algorithmId, onBack }: AlgorithmViewProps) {
     "overview" | "complexity" | "analysis"
   >("overview");
   const [customInputVal, setCustomInputVal] = useState("");
+  const [validationError, setValidationError] = useState<string | null>(null);
   const [activeCodeTab, setActiveCodeTab] = useState<
     "pseudocode" | "python" | "cpp" | "typescript" | "java"
   >("pseudocode");
@@ -80,26 +81,101 @@ export function AlgorithmView({ algorithmId, onBack }: AlgorithmViewProps) {
 
   const currentEvent = events[currentStep] || null;
 
+  // Validation logic
+  const validateCustomInput = (
+    value: string,
+  ): { isValid: boolean; error?: string; parsed?: number[] } => {
+    if (!value.trim()) {
+      return {
+        isValid: false,
+        error:
+          "Input is empty. Enter comma-separated numbers (e.g. 15, 32, 9, 84)",
+      };
+    }
+
+    const rawParts = value.split(",");
+    const arr = rawParts
+      .map((x) => x.trim())
+      .filter((x) => x !== "")
+      .map((x) => Number(x));
+
+    if (arr.some(isNaN)) {
+      return {
+        isValid: false,
+        error: "Invalid format. All values must be valid numbers.",
+      };
+    }
+
+    const integers = arr.map((x) => Math.floor(x));
+
+    if (integers.some((x) => x < 1 || x > 99)) {
+      return {
+        isValid: false,
+        error: "All numbers must be integers between 1 and 99 (inclusive).",
+      };
+    }
+
+    const len = integers.length;
+
+    if (algorithmId === "bitonic-sort") {
+      if (len !== 16) {
+        return {
+          isValid: false,
+          error: `Bitonic Sort (Tesseract/Hypercube) requires exactly 16 elements. You provided ${len}.`,
+        };
+      }
+    } else if (
+      algorithmId === "parallel-reduction" ||
+      algorithmId === "parallel-prefix-sum"
+    ) {
+      if (len < 4 || len > 16) {
+        return {
+          isValid: false,
+          error: `This parallel algorithm requires an array size between 4 and 16 elements. You provided ${len}.`,
+        };
+      }
+    } else {
+      const minSize = 4;
+      const maxSize = metadata.maxInputSize || 16;
+      if (len < minSize || len > maxSize) {
+        return {
+          isValid: false,
+          error: `Array size must be between ${minSize} and ${maxSize} elements. You provided ${len}.`,
+        };
+      }
+    }
+
+    return { isValid: true, parsed: integers };
+  };
+
+  const handleInputChange = (val: string) => {
+    setCustomInputVal(val);
+    if (!val.trim()) {
+      setValidationError(null);
+      return;
+    }
+    const result = validateCustomInput(val);
+    if (!result.isValid) {
+      setValidationError(result.error || null);
+    } else {
+      setValidationError(null);
+    }
+  };
+
   // Handler for custom array input
   const handleCustomInputSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!customInputVal.trim()) return;
+    const result = validateCustomInput(customInputVal);
+    if (!result.isValid) {
+      setValidationError(result.error || "Invalid input.");
+      return;
+    }
 
-    try {
-      // Parse CSV array
-      const arr = customInputVal
-        .split(",")
-        .map((x) => parseInt(x.trim(), 10))
-        .filter((x) => !isNaN(x));
-
-      if (arr.length > 0) {
-        const finalArr = arr.slice(0, metadata.maxInputSize);
-        setInputSize(finalArr.length);
-        uploadInput(finalArr);
-        setCustomInputVal("");
-      }
-    } catch (err) {
-      console.error("Failed to parse custom array input", err);
+    if (result.parsed && result.parsed.length > 0) {
+      setInputSize(result.parsed.length);
+      uploadInput(result.parsed);
+      setCustomInputVal("");
+      setValidationError(null);
     }
   };
 
@@ -250,24 +326,39 @@ export function AlgorithmView({ algorithmId, onBack }: AlgorithmViewProps) {
                   </div>
                 )}
 
-                {/* Processor Count (Only show for parallel) */}
-                {isParallel && (
-                  <div className="space-y-1.5 flex-1 min-w-[110px]">
-                    <div className="flex justify-between text-[10px] font-mono text-zinc-500">
-                      <span>CORES ({processorCount})</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="2"
-                      max={metadata.maxProcessorCount || 8}
-                      value={processorCount}
-                      onChange={(e) =>
-                        setProcessorCount(parseInt(e.target.value, 10))
-                      }
-                      className="w-full h-1 bg-zinc-900 rounded-lg appearance-none cursor-pointer accent-emerald-500"
-                    />
-                  </div>
-                )}
+                {/* Processor Count (Only show for parallel, except bitonic sort which has fixed 16-node topology) */}
+                {isParallel &&
+                  algorithmId !== "bitonic-sort" &&
+                  (() => {
+                    const allowedCores: number[] = [];
+                    const maxC = metadata.maxProcessorCount || 16;
+                    for (let c = 2; c <= maxC; c *= 2) {
+                      allowedCores.push(c);
+                    }
+                    return (
+                      <div className="space-y-1.5 flex-1 min-w-[135px]">
+                        <div className="flex justify-between text-[10px] font-mono text-zinc-500">
+                          <span>CORES ({processorCount})</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          {allowedCores.map((c) => (
+                            <button
+                              key={c}
+                              type="button"
+                              onClick={() => setProcessorCount(c)}
+                              className={`flex-1 text-center py-1 rounded text-xs font-mono font-bold border transition ${
+                                processorCount === c
+                                  ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-400 font-bold"
+                                  : "bg-zinc-900/50 border-zinc-850 text-zinc-400 hover:text-white hover:border-zinc-700"
+                              }`}
+                            >
+                              {c}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
               </div>
             </div>
 
@@ -289,39 +380,83 @@ export function AlgorithmView({ algorithmId, onBack }: AlgorithmViewProps) {
             )}
 
             {/* Custom Input Array Form */}
-            {metadata.category !== "Graphs" && (
-              <form
-                onSubmit={handleCustomInputSubmit}
-                className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 pt-3 border-t border-zinc-900"
-              >
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={randomizeInput}
-                    className="px-3 py-1.5 rounded bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs font-mono text-zinc-300 flex items-center gap-2 transition"
-                  >
-                    <Shuffle className="h-3 w-3" />
-                    <span>Randomize</span>
-                  </button>
-                </div>
+            {metadata.category !== "Graphs" &&
+              (() => {
+                let placeholderText = "Enter numbers, e.g., 5, 12, 8, 25";
+                if (algorithmId === "bitonic-sort") {
+                  placeholderText =
+                    "Enter exactly 16 numbers, e.g., 12, 45, 9, 87, 54, 30...";
+                } else if (
+                  algorithmId === "parallel-reduction" ||
+                  algorithmId === "parallel-prefix-sum"
+                ) {
+                  placeholderText =
+                    "Enter 4 to 16 numbers, e.g., 10, 42, 5, 80, 15";
+                } else {
+                  placeholderText = `Enter 4 to ${metadata.maxInputSize || 16} numbers, e.g., 8, 25, 43, 72`;
+                }
+                return (
+                  <div className="pt-3 border-t border-zinc-900 space-y-2">
+                    <form
+                      onSubmit={handleCustomInputSubmit}
+                      className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4"
+                    >
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={randomizeInput}
+                          className="px-3 py-1.5 rounded bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs font-mono text-zinc-300 flex items-center gap-2 transition"
+                        >
+                          <Shuffle className="h-3 w-3" />
+                          <span>Randomize</span>
+                        </button>
+                      </div>
 
-                <div className="flex items-center gap-2 flex-1 max-w-md">
-                  <input
-                    type="text"
-                    placeholder="Enter array indices, csv (e.g. 5, 12, 8, 25)"
-                    value={customInputVal}
-                    onChange={(e) => setCustomInputVal(e.target.value)}
-                    className="flex-1 bg-zinc-900 border border-zinc-850 rounded px-2.5 py-1.5 text-xs text-zinc-300 placeholder-zinc-500 focus:outline-none focus:border-zinc-700"
-                  />
-                  <button
-                    type="submit"
-                    className="px-3.5 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 border border-zinc-750 text-xs text-zinc-100 transition whitespace-nowrap"
-                  >
-                    Load Input
-                  </button>
-                </div>
-              </form>
-            )}
+                      <div className="flex items-center gap-2 flex-1 max-w-md">
+                        <input
+                          type="text"
+                          placeholder={placeholderText}
+                          value={customInputVal}
+                          onChange={(e) => handleInputChange(e.target.value)}
+                          className={`flex-1 bg-zinc-900 border ${
+                            validationError
+                              ? "border-red-500/50 focus:border-red-500"
+                              : "border-zinc-850 focus:border-zinc-700"
+                          } rounded px-2.5 py-1.5 text-xs text-zinc-300 placeholder-zinc-500 focus:outline-none`}
+                        />
+                        <button
+                          type="submit"
+                          disabled={!!validationError}
+                          className="px-3.5 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-900 disabled:text-zinc-600 disabled:border-zinc-900 border border-zinc-750 text-xs text-zinc-100 transition whitespace-nowrap"
+                        >
+                          Load Input
+                        </button>
+                      </div>
+                    </form>
+
+                    {/* Validation and help messages */}
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 text-[11px] font-mono">
+                      {validationError ? (
+                        <span className="text-red-400 flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                          {validationError}
+                        </span>
+                      ) : (
+                        <span className="text-zinc-500">
+                          {algorithmId === "bitonic-sort"
+                            ? "💡 Tip: Bitonic Sort requires exactly 16 values (numbers 1-99) to map to the 16 nodes of the Tesseract."
+                            : `💡 Tip: Enter integers between 1 and 99. Max size is ${metadata.maxInputSize || 16}.`}
+                        </span>
+                      )}
+                      {customInputVal.trim() && !validationError && (
+                        <span className="text-emerald-400 flex items-center gap-1 self-end">
+                          ✓ Input is valid and ready to load
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
           </div>
         </div>
 
@@ -387,27 +522,27 @@ export function AlgorithmView({ algorithmId, onBack }: AlgorithmViewProps) {
 
             {/* Content section */}
             {activeCodeTab === "pseudocode" ? (
-              <div className="flex-1 overflow-y-auto space-y-1 pr-1 font-mono text-[11px] leading-relaxed select-none scrollbar-thin">
-                {metadata.pseudocode.map((lineText, idx) => {
-                  const isLineActive = currentEvent?.line === idx;
-                  return (
-                    <div
-                      key={idx}
-                      className={`flex items-start gap-3.5 py-1 px-2.5 rounded transition duration-150 ${
-                        isLineActive
-                          ? "bg-emerald-500/10 border-l-2 border-emerald-500 text-emerald-300"
-                          : "text-zinc-400 hover:text-zinc-200"
-                      }`}
-                    >
-                      <span className="w-5 text-zinc-600 text-right font-mono text-[9px] select-none mt-0.5">
-                        {idx + 1}
-                      </span>
-                      <span className="whitespace-pre truncate">
-                        {lineText}
-                      </span>
-                    </div>
-                  );
-                })}
+              <div className="flex-1 overflow-auto space-y-1 pr-1 font-mono text-[11px] leading-relaxed select-none scrollbar-thin">
+                <div className="min-w-full inline-block">
+                  {metadata.pseudocode.map((lineText, idx) => {
+                    const isLineActive = currentEvent?.line === idx;
+                    return (
+                      <div
+                        key={idx}
+                        className={`flex items-start gap-3.5 py-1 px-2.5 rounded transition duration-150 ${
+                          isLineActive
+                            ? "bg-emerald-500/10 border-l-2 border-emerald-500 text-emerald-300"
+                            : "text-zinc-400 hover:text-zinc-200"
+                        }`}
+                      >
+                        <span className="w-5 text-zinc-600 text-right font-mono text-[9px] select-none mt-0.5">
+                          {idx + 1}
+                        </span>
+                        <span className="whitespace-pre">{lineText}</span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             ) : (
               <div className="flex-1 overflow-auto bg-zinc-950/40 border border-zinc-900 rounded-lg p-3 font-mono text-[11px] leading-relaxed text-zinc-300 select-text scrollbar-thin">
