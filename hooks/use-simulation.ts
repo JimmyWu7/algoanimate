@@ -21,9 +21,6 @@ export function useSimulation(
   const [events, setEvents] = useState<SimulationEvent[]>([]);
   const [currentStep, setCurrentStep] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [reductionOp, setReductionOp] = useState<
-    "sum" | "min" | "max" | "product"
-  >("sum");
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const lastUploadedDataRef = useRef<any>(null);
@@ -85,25 +82,13 @@ export function useSimulation(
   useEffect(() => {
     const timer = setTimeout(() => {
       const data = inputData || generateNewInput(inputSize, algorithmId);
-      const evs = generateEvents(
-        algorithmId,
-        data,
-        processorCount,
-        reductionOp,
-      );
+      const evs = generateEvents(algorithmId, data, processorCount);
       setEvents(evs);
       setCurrentStep(0);
       setIsPlaying(false);
     }, 0);
     return () => clearTimeout(timer);
-  }, [
-    algorithmId,
-    inputData,
-    processorCount,
-    inputSize,
-    generateNewInput,
-    reductionOp,
-  ]);
+  }, [algorithmId, inputData, processorCount, inputSize, generateNewInput]);
 
   // Map slider speed to millisecond delay (higher speed = shorter delay)
   const getDelay = useCallback(() => {
@@ -266,8 +251,6 @@ export function useSimulation(
     events,
     currentStep,
     isPlaying,
-    reductionOp,
-    setReductionOp,
     stepForward,
     stepBackward,
     jumpToStep,
