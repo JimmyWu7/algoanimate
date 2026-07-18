@@ -279,6 +279,9 @@ export function CanvasVisualizer({
           algorithmId === "insertion-sort" ||
           algorithmId === "merge-sort" ||
           algorithmId === "quick-sort" ||
+          algorithmId === "heap-sort" ||
+          algorithmId === "radix-sort" ||
+          algorithmId === "bucket-sort" ||
           algorithmId === "bitonic-sort" ||
           algorithmId === "odd-even-sort") &&
         currentStep === (events?.length || 0) - 1;
@@ -1636,6 +1639,667 @@ export function CanvasVisualizer({
     });
   };
 
+  const renderHeapSortLayout = (
+    ctx: CanvasRenderingContext2D,
+    w: number,
+    h: number,
+  ) => {
+    const data = ((currentEvent?.arraySnapshot || inputData) as number[]) || [];
+    const size = data.length || 8;
+    const heapSize =
+      currentEvent?.heapSize !== undefined ? currentEvent.heapSize : size;
+
+    // --- 1. Draw Array at the top ---
+    const arrayWidth = w - 160;
+    const cellWidth = arrayWidth / size;
+    const cellHeight = 45;
+    const xOffset = 80;
+    const yOffset = 45;
+
+    ctx.font = "11px var(--font-mono, monospace)";
+    ctx.fillStyle = "#71717a"; // Zinc 500
+    ctx.fillText("ARRAY REPRESENTATION", xOffset, yOffset - 15);
+
+    data.forEach((val, i) => {
+      const x = xOffset + i * cellWidth;
+      const y = yOffset;
+
+      const isSorted = i >= heapSize; // Sorted portion when heap shrinks
+      const isVisited = currentEvent?.indices?.includes(i);
+      const isCompare = currentEvent?.type === "COMPARE" && isVisited;
+      const isSwap = currentEvent?.type === "SWAP" && isVisited;
+      const isHighlight = currentEvent?.type === "HIGHLIGHT" && isVisited;
+
+      let strokeColor = "#27272a"; // Zinc 800
+      let fillColor = "#0f0f11"; // Zinc 900
+      let textColor = "#e4e4e7"; // Zinc 200
+      let lineWidth = 1.5;
+
+      if (isSorted) {
+        strokeColor = "#10b981"; // Emerald
+        fillColor = "#10b98115";
+        textColor = "#34d399";
+        lineWidth = 3;
+      } else if (isCompare) {
+        strokeColor = "#f59e0b"; // Amber
+        fillColor = "#f59e0b20";
+        textColor = "#fbbf24";
+        lineWidth = 3;
+      } else if (isSwap) {
+        strokeColor = "#f43f5e"; // Rose
+        fillColor = "#f43f5e25";
+        textColor = "#fda4af";
+        lineWidth = 3;
+      } else if (isHighlight) {
+        strokeColor = "#a855f7"; // Purple
+        fillColor = "#a855f715";
+        textColor = "#c084fc";
+        lineWidth = 3;
+      }
+
+      ctx.fillStyle = fillColor;
+      ctx.fillRect(x + 3, y, cellWidth - 6, cellHeight);
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = lineWidth;
+
+      ctx.beginPath();
+      ctx.roundRect(x + 3, y, cellWidth - 6, cellHeight, 5);
+      ctx.stroke();
+
+      // Write index
+      ctx.fillStyle = "#52525b";
+      ctx.font = "10px var(--font-mono, monospace)";
+      ctx.textAlign = "center";
+      ctx.fillText(String(i), x + cellWidth / 2, yOffset - 4);
+
+      // Write value
+      ctx.fillStyle = textColor;
+      ctx.font = "16px var(--font-sans, sans-serif)";
+      ctx.fillText(String(val), x + cellWidth / 2, y + cellHeight / 2 + 6);
+    });
+
+    // --- 2. Draw Binary Max-Heap Tree ---
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#71717a";
+    ctx.font = "11px var(--font-mono, monospace)";
+    ctx.fillText("BINARY MAX-HEAP TREE", xOffset, 120);
+
+    // Helper for tree node coordinates
+    const getCoords = (idx: number) => {
+      const treeTop = 155;
+      const treeBottom = h - 45;
+      const treeHeight = treeBottom - treeTop;
+      const level = Math.floor(Math.log2(idx + 1));
+      const maxL = Math.max(1, Math.floor(Math.log2(size)));
+      const nodeY = treeTop + (level / maxL) * treeHeight;
+
+      const slots = Math.pow(2, level);
+      const slotIdx = idx - (slots - 1);
+      const levelW = w - 160;
+      const slotW = levelW / slots;
+      const nodeX = 80 + slotW * slotIdx + slotW / 2;
+
+      return { x: nodeX, y: nodeY };
+    };
+
+    // Draw lines first (so they are under the nodes)
+    for (let i = 0; i < heapSize; i++) {
+      const pCoords = getCoords(i);
+      const left = 2 * i + 1;
+      const right = 2 * i + 2;
+
+      [left, right].forEach((child) => {
+        if (child < heapSize) {
+          const cCoords = getCoords(child);
+
+          const parentVisited = currentEvent?.indices?.includes(i);
+          const childVisited = currentEvent?.indices?.includes(child);
+
+          let edgeColor = "#27272a"; // Zinc 800
+          let edgeWidth = 1.5;
+
+          if (currentEvent?.type === "SWAP" && parentVisited && childVisited) {
+            edgeColor = "#f43f5e"; // Rose
+            edgeWidth = 3;
+          } else if (
+            currentEvent?.type === "COMPARE" &&
+            parentVisited &&
+            childVisited
+          ) {
+            edgeColor = "#f59e0b"; // Amber
+            edgeWidth = 3;
+          }
+
+          ctx.strokeStyle = edgeColor;
+          ctx.lineWidth = edgeWidth;
+          ctx.beginPath();
+          ctx.moveTo(pCoords.x, pCoords.y);
+          ctx.lineTo(cCoords.x, cCoords.y);
+          ctx.stroke();
+        }
+      });
+    }
+
+    // Draw nodes
+    for (let i = 0; i < heapSize; i++) {
+      const { x, y } = getCoords(i);
+      const val = data[i];
+
+      const isVisited = currentEvent?.indices?.includes(i);
+      const isCompare = currentEvent?.type === "COMPARE" && isVisited;
+      const isSwap = currentEvent?.type === "SWAP" && isVisited;
+
+      let strokeColor = "#3f3f46"; // Zinc 700
+      let fillColor = "#18181b"; // Zinc 900
+      let textColor = "#e4e4e7"; // Zinc 200
+      let radius = 18;
+
+      if (isCompare) {
+        strokeColor = "#f59e0b"; // Amber
+        fillColor = "#78350f"; // Dark Amber
+        textColor = "#fbbf24";
+      } else if (isSwap) {
+        strokeColor = "#f43f5e"; // Rose
+        fillColor = "#881337"; // Dark Rose
+        textColor = "#fda4af";
+      }
+
+      ctx.fillStyle = fillColor;
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, 2 * Math.PI);
+      ctx.fill();
+
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Write node value
+      ctx.fillStyle = textColor;
+      ctx.font = "14px var(--font-mono, monospace)";
+      ctx.textAlign = "center";
+      ctx.fillText(String(val), x, y + 5);
+
+      // Write node index very small above the circle
+      ctx.fillStyle = "#71717a";
+      ctx.font = "8px var(--font-mono, monospace)";
+      ctx.fillText(String(i), x, y - radius - 3);
+    }
+
+    // --- 3. Draw Swap double-pointed arrow in the tree if we have a swap event ---
+    if (
+      currentEvent?.type === "SWAP" &&
+      currentEvent.indices &&
+      currentEvent.indices.length === 2
+    ) {
+      const idx1 = currentEvent.indices[0];
+      const idx2 = currentEvent.indices[1];
+      if (idx1 < size && idx2 < size) {
+        const p1 = getCoords(idx1);
+        const p2 = getCoords(idx2);
+
+        // Parent is the node with the smaller Y value, child is the node with the larger Y value
+        const pParent = p1.y <= p2.y ? p1 : p2;
+        const pChild = p1.y > p2.y ? p1 : p2;
+
+        const dx = pChild.x - pParent.x;
+        const dy = pChild.y - pParent.y;
+        const dist = Math.hypot(dx, dy);
+
+        if (dist > 40) {
+          const mx = (pParent.x + pChild.x) / 2;
+          const my = (pParent.y + pChild.y) / 2;
+
+          // Determine outward normal direction (curving left for left branch, right for right branch)
+          const vx = pChild.x <= pParent.x ? -dy : dy;
+          const vy = pChild.x <= pParent.x ? dx : -dx;
+          const vLength = Math.hypot(vx, vy);
+          const nx = vx / vLength;
+          const ny = vy / vLength;
+
+          // Compute control point with a beautiful curve offset
+          const offset = dist * 0.5;
+          const cx = mx + nx * offset;
+          const cy = my + ny * offset;
+
+          const r = 20; // 18 (radius) + 2 (padding)
+
+          // Intersect with circles towards control point
+          const dx1 = cx - pParent.x;
+          const dy1 = cy - pParent.y;
+          const dist1 = Math.hypot(dx1, dy1);
+          const startX = pParent.x + (dx1 / dist1) * r;
+          const startY = pParent.y + (dy1 / dist1) * r;
+
+          const dx2 = cx - pChild.x;
+          const dy2 = cy - pChild.y;
+          const dist2 = Math.hypot(dx2, dy2);
+          const endX = pChild.x + (dx2 / dist2) * r;
+          const endY = pChild.y + (dy2 / dist2) * r;
+
+          // Draw the curved line
+          ctx.strokeStyle = "#f43f5e"; // Rose arrow color matching the swap color
+          ctx.lineWidth = 2.5;
+          ctx.beginPath();
+          ctx.moveTo(startX, startY);
+          ctx.quadraticCurveTo(cx, cy, endX, endY);
+          ctx.stroke();
+
+          // Arrow heads at both ends pointing outwards from the curve (towards the nodes)
+          const arrowLength = 8;
+          const arrowAngle = Math.PI / 6; // 30 degrees
+
+          // 1. Arrow head at parent (startX, startY) - wings point back towards control point (cx, cy)
+          const theta = Math.atan2(cy - startY, cx - startX);
+          ctx.fillStyle = "#f43f5e";
+          ctx.beginPath();
+          ctx.moveTo(startX, startY);
+          ctx.lineTo(
+            startX + Math.cos(theta - arrowAngle) * arrowLength,
+            startY + Math.sin(theta - arrowAngle) * arrowLength,
+          );
+          ctx.lineTo(
+            startX + Math.cos(theta + arrowAngle) * arrowLength,
+            startY + Math.sin(theta + arrowAngle) * arrowLength,
+          );
+          ctx.closePath();
+          ctx.fill();
+
+          // 2. Arrow head at child (endX, endY) - wings point back towards control point (cx, cy)
+          const phi = Math.atan2(cy - endY, cx - endX);
+          ctx.beginPath();
+          ctx.moveTo(endX, endY);
+          ctx.lineTo(
+            endX + Math.cos(phi - arrowAngle) * arrowLength,
+            endY + Math.sin(phi - arrowAngle) * arrowLength,
+          );
+          ctx.lineTo(
+            endX + Math.cos(phi + arrowAngle) * arrowLength,
+            endY + Math.sin(phi + arrowAngle) * arrowLength,
+          );
+          ctx.closePath();
+          ctx.fill();
+        }
+      }
+    }
+
+    ctx.textAlign = "left"; // reset
+  };
+
+  const renderBucketSortLayout = (
+    ctx: CanvasRenderingContext2D,
+    w: number,
+    h: number,
+  ) => {
+    const data = ((currentEvent?.arraySnapshot || inputData) as number[]) || [];
+    const size = data.length || 8;
+    const bucketInfo = currentEvent?.bucketData;
+
+    // 1. Draw array at the top
+    const arrayWidth = w - 160;
+    const cellWidth = arrayWidth / size;
+    const cellHeight = 45;
+    const xOffset = 80;
+    const yOffset = 45;
+
+    ctx.font = "11px var(--font-mono, monospace)";
+    ctx.fillStyle = "#71717a";
+    ctx.fillText("PRIMARY ARRAY BUFFER", xOffset, yOffset - 15);
+
+    data.forEach((val, i) => {
+      const x = xOffset + i * cellWidth;
+      const y = yOffset;
+
+      const isVisited = currentEvent?.indices?.includes(i);
+      const isWrite = currentEvent?.type === "WRITE" && isVisited;
+
+      let strokeColor = "#27272a";
+      let fillColor = "#0f0f11";
+      let textColor = "#e4e4e7";
+      let lineWidth = 1.5;
+
+      if (isWrite) {
+        strokeColor = "#10b981"; // Emerald
+        fillColor = "#10b98115";
+        textColor = "#6ee7b7";
+        lineWidth = 3;
+      } else if (isVisited) {
+        strokeColor = "#06b6d4"; // Cyan
+        fillColor = "#06b6d415";
+        textColor = "#67e8f9";
+        lineWidth = 3;
+      }
+
+      ctx.fillStyle = fillColor;
+      ctx.fillRect(x + 3, y, cellWidth - 6, cellHeight);
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = lineWidth;
+
+      ctx.beginPath();
+      ctx.roundRect(x + 3, y, cellWidth - 6, cellHeight, 5);
+      ctx.stroke();
+
+      ctx.fillStyle = "#52525b";
+      ctx.font = "10px var(--font-mono, monospace)";
+      ctx.textAlign = "center";
+      ctx.fillText(String(i), x + cellWidth / 2, yOffset - 4);
+
+      if (val !== null && val !== undefined) {
+        ctx.fillStyle = textColor;
+        ctx.font = "16px var(--font-sans, sans-serif)";
+        ctx.fillText(String(val), x + cellWidth / 2, y + cellHeight / 2 + 6);
+      }
+    });
+
+    // 2. Draw Buckets at the bottom
+    const bY = h - 190;
+    const bHeight = 110;
+    const bWidth = arrayWidth / size;
+
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#71717a";
+    ctx.font = "11px var(--font-mono, monospace)";
+    ctx.fillText(
+      `VALUE RANGE BUCKETS (${bucketInfo?.stage?.toUpperCase() || "IDLE"} STAGE)`,
+      xOffset,
+      bY - 20,
+    );
+
+    const buckets =
+      bucketInfo?.buckets || Array.from({ length: size }, () => []);
+    const minVal = bucketInfo?.minVal || 0;
+    const range = bucketInfo?.range || 1;
+
+    for (let b = 0; b < size; b++) {
+      const bx = xOffset + b * bWidth;
+      const by = bY;
+
+      // Determine range text
+      const rMin = minVal + b * range;
+      const rMax = minVal + (b + 1) * range;
+      const rangeText = `${rMin.toFixed(0)}-${rMax.toFixed(0)}`;
+
+      // Highlight bucket if active
+      let bucketActive = false;
+      let bucketHighlightColor = "#3f3f46"; // Default border
+
+      if (bucketInfo?.stage === "distribute" && currentEvent?.indices?.length) {
+        const activeIdx = currentEvent.indices[0];
+        const activeVal = data[activeIdx];
+        let targetBucket = Math.floor((activeVal - minVal) / range);
+        if (targetBucket === size) targetBucket--;
+        if (targetBucket === b) {
+          bucketActive = true;
+          bucketHighlightColor = "#06b6d4"; // Cyan glow
+        }
+      } else if (bucketInfo?.stage === "sort") {
+        const isThisBucket =
+          currentEvent?.description?.includes(`Bucket ${b}`) ||
+          currentEvent?.description?.includes(`bucket ${b}`);
+        if (isThisBucket) {
+          bucketActive = true;
+          bucketHighlightColor = "#f59e0b"; // Amber glow
+        }
+      } else if (
+        bucketInfo?.stage === "concatenate" &&
+        currentEvent?.indices?.length
+      ) {
+        const desc = currentEvent?.description || "";
+        if (desc.includes(`Bucket ${b}`) || desc.includes(`bucket ${b}`)) {
+          bucketActive = true;
+          bucketHighlightColor = "#10b981"; // Emerald glow
+        }
+      }
+
+      // Draw Bucket Cup shape
+      ctx.strokeStyle = bucketHighlightColor;
+      ctx.lineWidth = bucketActive ? 3.5 : 1.5;
+      ctx.beginPath();
+      ctx.moveTo(bx + 10, by);
+      ctx.lineTo(bx + 10, by + bHeight);
+      ctx.lineTo(bx + bWidth - 10, by + bHeight);
+      ctx.lineTo(bx + bWidth - 10, by);
+      ctx.stroke();
+
+      // Write Bucket label & Range underneath
+      ctx.fillStyle = bucketActive ? bucketHighlightColor : "#52525b";
+      ctx.font = "9px var(--font-mono, monospace)";
+      ctx.textAlign = "center";
+      ctx.fillText(`B${b}`, bx + bWidth / 2, by + bHeight + 14);
+      ctx.fillStyle = "#71717a";
+      ctx.font = "8px var(--font-mono, monospace)";
+      ctx.fillText(rangeText, bx + bWidth / 2, by + bHeight + 25);
+
+      // Draw elements stacked inside bucket
+      const bElements = buckets[b] || [];
+      bElements.forEach((val, idx) => {
+        const chipX = bx + bWidth / 2;
+        const chipY = by + bHeight - 16 - idx * 22;
+
+        let chipFill = "#18181b";
+        let chipStroke = "#3f3f46";
+        let chipText = "#e4e4e7";
+
+        if (bucketActive) {
+          if (bucketInfo?.stage === "distribute") {
+            chipFill = "#06b6d415";
+            chipStroke = "#06b6d4";
+            chipText = "#67e8f9";
+          } else if (bucketInfo?.stage === "sort") {
+            chipFill = "#f59e0b15";
+            chipStroke = "#f59e0b";
+            chipText = "#fbbf24";
+          } else {
+            chipFill = "#10b98115";
+            chipStroke = "#10b981";
+            chipText = "#6ee7b7";
+          }
+        }
+
+        ctx.fillStyle = chipFill;
+        ctx.strokeStyle = chipStroke;
+        ctx.lineWidth = 1.5;
+
+        ctx.beginPath();
+        ctx.roundRect(chipX - 16, chipY - 9, 32, 18, 4);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = chipText;
+        ctx.font = "11px var(--font-mono, monospace)";
+        ctx.fillText(String(val), chipX, chipY + 4);
+      });
+    }
+
+    ctx.textAlign = "left"; // reset
+  };
+
+  const renderRadixSortLayout = (
+    ctx: CanvasRenderingContext2D,
+    w: number,
+    h: number,
+  ) => {
+    const data = ((currentEvent?.arraySnapshot || inputData) as number[]) || [];
+    const size = data.length || 8;
+    const radixInfo = currentEvent?.radixData;
+    const exp = radixInfo?.exp || 1;
+
+    // 1. Draw Array at the top
+    const arrayWidth = w - 160;
+    const cellWidth = arrayWidth / size;
+    const cellHeight = 45;
+    const xOffset = 80;
+    const yOffset = 45;
+
+    ctx.font = "11px var(--font-mono, monospace)";
+    ctx.fillStyle = "#71717a";
+    ctx.fillText(
+      `ARRAY BUFFER (PROCESSING EXPLICIT ${exp}s PLACE IN AMBER)`,
+      xOffset,
+      yOffset - 15,
+    );
+
+    data.forEach((val, i) => {
+      const x = xOffset + i * cellWidth;
+      const y = yOffset;
+
+      const isVisited = currentEvent?.indices?.includes(i);
+      const isWrite = currentEvent?.type === "WRITE" && isVisited;
+
+      let strokeColor = "#27272a";
+      let fillColor = "#0f0f11";
+      let textColor = "#e4e4e7";
+      let lineWidth = 1.5;
+
+      if (isWrite) {
+        strokeColor = "#10b981"; // Emerald
+        fillColor = "#10b98115";
+        textColor = "#6ee7b7";
+        lineWidth = 3;
+      } else if (isVisited) {
+        strokeColor = "#06b6d4"; // Cyan
+        fillColor = "#06b6d415";
+        textColor = "#67e8f9";
+        lineWidth = 3;
+      }
+
+      ctx.fillStyle = fillColor;
+      ctx.fillRect(x + 3, y, cellWidth - 6, cellHeight);
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = lineWidth;
+
+      ctx.beginPath();
+      ctx.roundRect(x + 3, y, cellWidth - 6, cellHeight, 5);
+      ctx.stroke();
+
+      ctx.fillStyle = "#52525b";
+      ctx.font = "10px var(--font-mono, monospace)";
+      ctx.textAlign = "center";
+      ctx.fillText(String(i), x + cellWidth / 2, yOffset - 4);
+
+      if (val !== null && val !== undefined) {
+        const numStr = String(val);
+        const activePosFromRight = Math.round(Math.log10(exp));
+
+        ctx.font = "16px var(--font-mono, monospace)";
+        const totalW = ctx.measureText(numStr).width;
+        let currentX = x + cellWidth / 2 - totalW / 2;
+
+        for (let charIdx = 0; charIdx < numStr.length; charIdx++) {
+          const char = numStr[charIdx];
+          const posFromRight = numStr.length - 1 - charIdx;
+          const isCharActive = posFromRight === activePosFromRight;
+
+          ctx.textAlign = "center";
+          ctx.fillStyle = isCharActive ? "#f59e0b" : textColor;
+
+          if (isCharActive) {
+            ctx.font = "bold 16px var(--font-mono, monospace)";
+          } else {
+            ctx.font = "16px var(--font-mono, monospace)";
+          }
+
+          const charW = ctx.measureText(char).width;
+          ctx.fillText(char, currentX + charW / 2, y + cellHeight / 2 + 6);
+          currentX += charW;
+        }
+      }
+    });
+
+    // 2. Draw 10 Buckets labeled 0-9
+    const bY = h - 190;
+    const bHeight = 110;
+    const bWidth = arrayWidth / 10;
+
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#71717a";
+    ctx.font = "11px var(--font-mono, monospace)";
+    ctx.fillText(
+      `DIGIT BUCKETS 0–9 (${radixInfo?.stage?.toUpperCase() || "IDLE"} STAGE)`,
+      xOffset,
+      bY - 20,
+    );
+
+    const buckets = radixInfo?.buckets || Array.from({ length: 10 }, () => []);
+
+    for (let b = 0; b < 10; b++) {
+      const bx = xOffset + b * bWidth;
+      const by = bY;
+
+      let bucketActive = false;
+      let bucketHighlightColor = "#27272a"; // Zinc 800
+
+      if (radixInfo?.stage === "distribute" && currentEvent?.indices?.length) {
+        const activeIdx = currentEvent.indices[0];
+        const activeVal = data[activeIdx];
+        const targetDigit = Math.floor(activeVal / exp) % 10;
+        if (targetDigit === b) {
+          bucketActive = true;
+          bucketHighlightColor = "#06b6d4"; // Cyan
+        }
+      } else if (radixInfo?.stage === "collect") {
+        const desc = currentEvent?.description || "";
+        if (desc.includes(`Bucket ${b}`) || desc.includes(`bucket ${b}`)) {
+          bucketActive = true;
+          bucketHighlightColor = "#10b981"; // Emerald
+        }
+      }
+
+      // Draw Bucket outline
+      ctx.strokeStyle = bucketActive ? bucketHighlightColor : "#3f3f46";
+      ctx.lineWidth = bucketActive ? 3.5 : 1.5;
+      ctx.beginPath();
+      ctx.moveTo(bx + 6, by);
+      ctx.lineTo(bx + 6, by + bHeight);
+      ctx.lineTo(bx + bWidth - 6, by + bHeight);
+      ctx.lineTo(bx + bWidth - 6, by);
+      ctx.stroke();
+
+      // Label below bucket
+      ctx.fillStyle = bucketActive ? bucketHighlightColor : "#71717a";
+      ctx.font = "bold 12px var(--font-mono, monospace)";
+      ctx.textAlign = "center";
+      ctx.fillText(String(b), bx + bWidth / 2, by + bHeight + 18);
+
+      // Stack chips inside bucket
+      const bElements = buckets[b] || [];
+      bElements.forEach((val, idx) => {
+        const chipX = bx + bWidth / 2;
+        const chipY = by + bHeight - 16 - idx * 22;
+
+        let chipFill = "#18181b";
+        let chipStroke = "#3f3f46";
+        let chipText = "#e4e4e7";
+
+        if (bucketActive) {
+          if (radixInfo?.stage === "distribute") {
+            chipFill = "#06b6d415";
+            chipStroke = "#06b6d4";
+            chipText = "#67e8f9";
+          } else {
+            chipFill = "#10b98115";
+            chipStroke = "#10b981";
+            chipText = "#6ee7b7";
+          }
+        }
+
+        ctx.fillStyle = chipFill;
+        ctx.strokeStyle = chipStroke;
+        ctx.lineWidth = 1.5;
+
+        ctx.beginPath();
+        ctx.roundRect(chipX - 14, chipY - 9, 28, 18, 4);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = chipText;
+        ctx.font = "11px var(--font-mono, monospace)";
+        ctx.fillText(String(val), chipX, chipY + 4);
+      });
+    }
+
+    ctx.textAlign = "left"; // reset
+  };
+
   // Spawn packets on step change (Moved down to avoid hoisting errors and wrapped in setTimeout to avoid synchronous setState warnings)
   useEffect(() => {
     if (!currentEvent) {
@@ -1840,6 +2504,12 @@ export function CanvasVisualizer({
         );
         renderMergeSortTree(ctx, width, height, nodesMap, currentEvent);
       }
+    } else if (algorithmId === "heap-sort") {
+      renderHeapSortLayout(ctx, width, height);
+    } else if (algorithmId === "radix-sort") {
+      renderRadixSortLayout(ctx, width, height);
+    } else if (algorithmId === "bucket-sort") {
+      renderBucketSortLayout(ctx, width, height);
     } else {
       switch (model) {
         case "RAM":

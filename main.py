@@ -1,3 +1,11 @@
+"""
+This file is for testing and experimenting with algorithms.
+
+It is not used by any other files in the project and exists only for
+development, learning, and experimentation.
+"""
+
+
 def bubble_sort(arr):
     n = len(arr)
     print(n)
@@ -139,4 +147,3 @@ index = binary_search(numbers, target)
 #     print(f"Found {target} at index {index}")
 # else:
 #     print(f"{target} not found")
-

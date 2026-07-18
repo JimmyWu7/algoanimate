@@ -73,7 +73,7 @@ Core Directives:
       parts: [{ text: message }],
     });
 
-    // Call the correct model gemini-3.5-flash
+    // Call the correct model gemini-3.5-flash or gemini-3.1-flash-lite
     const response = await ai.models.generateContent({
       model: "gemini-3.1-flash-lite",
       contents: contents,

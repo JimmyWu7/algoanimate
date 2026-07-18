@@ -6,6 +6,9 @@ export type AlgorithmId =
   | "insertion-sort"
   | "merge-sort"
   | "quick-sort"
+  | "bucket-sort"
+  | "radix-sort"
+  | "heap-sort"
   | "binary-search"
   | "bfs"
   | "dfs"
@@ -99,6 +102,19 @@ export interface SimulationEvent {
   arraySnapshot?: number[]; // snapshot of array-based states at this step
   k?: number; // current bitonic sublist size
   j?: number; // current comparison spacing / offset
+  heapSize?: number; // active heap size for heap sort
+  radixData?: {
+    buckets: number[][];
+    exp: number;
+    stage: "distribute" | "collect";
+  };
+  bucketData?: {
+    buckets: number[][];
+    minVal: number;
+    maxVal: number;
+    range: number;
+    stage: "distribute" | "sort" | "concatenate";
+  };
 }
 
 export interface SimulationState {

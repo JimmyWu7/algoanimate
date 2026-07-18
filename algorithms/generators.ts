@@ -44,7 +44,6 @@ export function generateEvents(
   id: AlgorithmId,
   input: any,
   processorCount: number = 4,
-  reductionOp: "sum" | "min" | "max" | "product" = "sum",
 ): SimulationEvent[] {
   const events: SimulationEvent[] = [];
   let stepCounter = 0;
@@ -473,6 +472,438 @@ export function generateEvents(
         {
           indices: Array.from({ length: arr.length }, (_, idx) => idx),
           arraySnapshot: [...arr],
+        },
+      );
+      break;
+    }
+
+    case "heap-sort": {
+      const arr = [...input] as number[];
+      const n = arr.length;
+      emit("HIGHLIGHT", 0, "Start Heap Sort on list: " + arr.join(", "), {
+        arraySnapshot: [...arr],
+        heapSize: n,
+      });
+
+      const heapify = (size: number, i: number) => {
+        let largest = i;
+        const left = 2 * i + 1;
+        const right = 2 * i + 2;
+
+        emit(
+          "COMPARE",
+          11,
+          `Heapify index ${i}. Largest initialized to ${i} (value: ${arr[i]})`,
+          {
+            indices: [i],
+            arraySnapshot: [...arr],
+            heapSize: size,
+          },
+        );
+
+        if (left < size) {
+          emit(
+            "COMPARE",
+            14,
+            `Compare left child A[${left}] (${arr[left]}) with current largest A[${largest}] (${arr[largest]})`,
+            {
+              indices: [left, largest],
+              arraySnapshot: [...arr],
+              heapSize: size,
+            },
+          );
+          if (arr[left] > arr[largest]) {
+            largest = left;
+          }
+        }
+
+        if (right < size) {
+          emit(
+            "COMPARE",
+            15,
+            `Compare right child A[${right}] (${arr[right]}) with current largest A[${largest}] (${arr[largest]})`,
+            {
+              indices: [right, largest],
+              arraySnapshot: [...arr],
+              heapSize: size,
+            },
+          );
+          if (arr[right] > arr[largest]) {
+            largest = right;
+          }
+        }
+
+        if (largest !== i) {
+          const temp = arr[i];
+          arr[i] = arr[largest];
+          arr[largest] = temp;
+
+          emit(
+            "SWAP",
+            17,
+            `Swap parent A[${i}] (${arr[i]}) with largest child A[${largest}] (${arr[largest]})`,
+            {
+              indices: [i, largest],
+              values: [...arr],
+              arraySnapshot: [...arr],
+              heapSize: size,
+            },
+          );
+
+          heapify(size, largest);
+        }
+      };
+
+      // 1. Build max heap
+      emit(
+        "HIGHLIGHT",
+        2,
+        "Step 1: Build max heap from the array by heapifying non-leaf nodes...",
+        {
+          arraySnapshot: [...arr],
+          heapSize: n,
+        },
+      );
+      for (let i = Math.floor(n / 2) - 1; i >= 0; i--) {
+        heapify(n, i);
+      }
+
+      // 2. Extract elements one by one
+      emit(
+        "HIGHLIGHT",
+        5,
+        "Step 2: Repeatedly swap the maximum element (root) to the end of the array...",
+        {
+          arraySnapshot: [...arr],
+          heapSize: n,
+        },
+      );
+      for (let i = n - 1; i > 0; i--) {
+        const temp = arr[0];
+        arr[0] = arr[i];
+        arr[i] = temp;
+
+        emit(
+          "SWAP",
+          6,
+          `Max root (${arr[i]}) swapped with last active element A[${i}] (${arr[0]})`,
+          {
+            indices: [0, i],
+            values: [...arr],
+            arraySnapshot: [...arr],
+            heapSize: i + 1,
+          },
+        );
+
+        emit("HIGHLIGHT", 7, `Re-heapify remaining size ${i} at root index 0`, {
+          indices: [0],
+          arraySnapshot: [...arr],
+          heapSize: i,
+        });
+        heapify(i, 0);
+      }
+
+      emit(
+        "HIGHLIGHT",
+        9,
+        "Heap Sort finished! Sorted array: " + arr.join(", "),
+        {
+          indices: Array.from({ length: n }, (_, idx) => idx),
+          arraySnapshot: [...arr],
+          heapSize: 0,
+        },
+      );
+      break;
+    }
+
+    case "radix-sort": {
+      const arr = [...input] as number[];
+      const n = arr.length;
+      emit(
+        "HIGHLIGHT",
+        0,
+        "Start Radix Sort (LSD) on list: " + arr.join(", "),
+        {
+          arraySnapshot: [...arr],
+          radixData: {
+            buckets: Array.from({ length: 10 }, () => []),
+            exp: 1,
+            stage: "distribute",
+          },
+        },
+      );
+
+      const maxVal = Math.max(...arr);
+      emit(
+        "HIGHLIGHT",
+        1,
+        `Max value is ${maxVal}. Finding number of digits...`,
+        {
+          arraySnapshot: [...arr],
+          radixData: {
+            buckets: Array.from({ length: 10 }, () => []),
+            exp: 1,
+            stage: "distribute",
+          },
+        },
+      );
+
+      for (let exp = 1; Math.floor(maxVal / exp) > 0; exp *= 10) {
+        const buckets: number[][] = Array.from({ length: 10 }, () => []);
+
+        emit("HIGHLIGHT", 3, `Sorting by digit position (exponent: ${exp})`, {
+          arraySnapshot: [...arr],
+          radixData: {
+            buckets: buckets.map((b) => [...b]),
+            exp,
+            stage: "distribute",
+          },
+        });
+
+        // Compute frequencies of digits / distribute
+        for (let i = 0; i < n; i++) {
+          const digit = Math.floor(arr[i] / exp) % 10;
+          buckets[digit].push(arr[i]);
+          emit(
+            "WRITE",
+            13,
+            `Distribute: Move ${arr[i]} to Bucket ${digit} based on digit value`,
+            {
+              indices: [i],
+              arraySnapshot: [...arr],
+              radixData: {
+                buckets: buckets.map((b) => [...b]),
+                exp,
+                stage: "distribute",
+              },
+            },
+          );
+        }
+
+        // Collect stage
+        emit(
+          "HIGHLIGHT",
+          20,
+          `Collect: Extracting elements from buckets 0 to 9 to rebuild the array...`,
+          {
+            arraySnapshot: [...arr],
+            radixData: {
+              buckets: buckets.map((b) => [...b]),
+              exp,
+              stage: "collect",
+            },
+          },
+        );
+
+        let idx = 0;
+        for (let digit = 0; digit < 10; digit++) {
+          while (buckets[digit].length > 0) {
+            const val = buckets[digit].shift()!;
+            arr[idx] = val;
+
+            emit(
+              "WRITE",
+              24,
+              `Collect: Copy ${val} from Bucket ${digit} back to array index ${idx}`,
+              {
+                indices: [idx],
+                arraySnapshot: [...arr],
+                radixData: {
+                  buckets: buckets.map((b) => [...b]),
+                  exp,
+                  stage: "collect",
+                },
+              },
+            );
+            idx++;
+          }
+        }
+      }
+
+      emit(
+        "HIGHLIGHT",
+        6,
+        "Radix Sort complete! Array is sorted: " + arr.join(", "),
+        {
+          indices: Array.from({ length: n }, (_, idx) => idx),
+          arraySnapshot: [...arr],
+          radixData: {
+            buckets: Array.from({ length: 10 }, () => []),
+            exp: 1,
+            stage: "collect",
+          },
+        },
+      );
+      break;
+    }
+
+    case "bucket-sort": {
+      const arr = [...input] as number[];
+      const n = arr.length;
+      emit("HIGHLIGHT", 0, "Start Bucket Sort on list: " + arr.join(", "), {
+        arraySnapshot: [...arr],
+        bucketData: {
+          buckets: Array.from({ length: n }, () => []),
+          minVal: 0,
+          maxVal: 0,
+          range: 0,
+          stage: "distribute",
+        },
+      });
+
+      const minVal = Math.min(...arr);
+      const maxVal = Math.max(...arr);
+      const range = (maxVal - minVal) / n;
+
+      if (range === 0) {
+        emit(
+          "HIGHLIGHT",
+          5,
+          "Range is 0, array contains identical elements. Done.",
+          {
+            arraySnapshot: [...arr],
+            bucketData: {
+              buckets: [[...arr]],
+              minVal,
+              maxVal,
+              range: 1,
+              stage: "concatenate",
+            },
+          },
+        );
+        break;
+      }
+
+      emit(
+        "HIGHLIGHT",
+        1,
+        `Determined range: [${minVal}..${maxVal}]. Preparing ${n} empty buckets.`,
+        {
+          arraySnapshot: [...arr],
+          bucketData: {
+            buckets: Array.from({ length: n }, () => []),
+            minVal,
+            maxVal,
+            range,
+            stage: "distribute",
+          },
+        },
+      );
+
+      const buckets: number[][] = Array.from({ length: n }, () => []);
+
+      // Distribute into buckets
+      for (let i = 0; i < n; i++) {
+        let bucketIndex = Math.floor((arr[i] - minVal) / range);
+        if (bucketIndex === n) {
+          bucketIndex--;
+        }
+        buckets[bucketIndex].push(arr[i]);
+        emit(
+          "WRITE",
+          3,
+          `Distribute: Place A[${i}] (${arr[i]}) into Bucket ${bucketIndex}`,
+          {
+            indices: [i],
+            arraySnapshot: [...arr],
+            bucketData: {
+              buckets: buckets.map((b) => [...b]),
+              minVal,
+              maxVal,
+              range,
+              stage: "distribute",
+            },
+          },
+        );
+      }
+
+      // Sort individual buckets
+      emit("HIGHLIGHT", 7, "Sorting individual buckets...", {
+        arraySnapshot: [...arr],
+        bucketData: {
+          buckets: buckets.map((b) => [...b]),
+          minVal,
+          maxVal,
+          range,
+          stage: "sort",
+        },
+      });
+      for (let i = 0; i < n; i++) {
+        if (buckets[i].length > 0) {
+          buckets[i].sort((a, b) => a - b);
+          emit(
+            "HIGHLIGHT",
+            8,
+            `Sort: Bucket ${i} sorted to [${buckets[i].join(", ")}]`,
+            {
+              arraySnapshot: [...arr],
+              bucketData: {
+                buckets: buckets.map((b) => [...b]),
+                minVal,
+                maxVal,
+                range,
+                stage: "sort",
+              },
+            },
+          );
+        }
+      }
+
+      // Concatenate
+      emit(
+        "HIGHLIGHT",
+        10,
+        "Concatenating sorted buckets back into primary list...",
+        {
+          arraySnapshot: [...arr],
+          bucketData: {
+            buckets: buckets.map((b) => [...b]),
+            minVal,
+            maxVal,
+            range,
+            stage: "concatenate",
+          },
+        },
+      );
+      let idx = 0;
+      for (let i = 0; i < n; i++) {
+        while (buckets[i].length > 0) {
+          const val = buckets[i].shift()!;
+          arr[idx] = val;
+          emit(
+            "WRITE",
+            10,
+            `Concatenate: Write ${val} from Bucket ${i} to index ${idx}`,
+            {
+              indices: [idx],
+              arraySnapshot: [...arr],
+              bucketData: {
+                buckets: buckets.map((b) => [...b]),
+                minVal,
+                maxVal,
+                range,
+                stage: "concatenate",
+              },
+            },
+          );
+          idx++;
+        }
+      }
+
+      emit(
+        "HIGHLIGHT",
+        11,
+        "Bucket Sort finished! Sorted array: " + arr.join(", "),
+        {
+          indices: Array.from({ length: n }, (_, index) => index),
+          arraySnapshot: [...arr],
+          bucketData: {
+            buckets: Array.from({ length: n }, () => []),
+            minVal,
+            maxVal,
+            range,
+            stage: "concatenate",
+          },
         },
       );
       break;
@@ -1133,21 +1564,13 @@ export function generateEvents(
 
     // --- PARALLEL ALGORITHMS ---
     case "parallel-reduction": {
-      // In-place parallel tree-based reduction
-      const opLabelMap: Record<string, string> = {
-        sum: "Sum",
-        min: "Min",
-        max: "Max",
-        product: "Product",
-      };
-      const opLabel = opLabelMap[reductionOp] || "Sum";
-
+      // In-place parallel tree-based summation
       const arr = [...input] as number[];
       const n = arr.length;
       emit(
         "HIGHLIGHT",
         0,
-        `Start Parallel Reduction (${opLabel}) on ${n} elements using ${processorCount} processors. Array: ` +
+        `Start Parallel Reduction (Sum) on ${n} elements using ${processorCount} processors. Array: ` +
           arr.join(", "),
         {
           arraySnapshot: [...arr],
@@ -1188,48 +1611,30 @@ export function generateEvents(
           },
         );
 
-        // Simulating the reduction operation
+        // Simulating the addition
         for (const pair of pairs) {
           const { targetIdx, sourceIdx, pId } = pair;
-          const val1 = arr[targetIdx];
-          const val2 = arr[sourceIdx];
 
           emit(
             "SEND_MESSAGE",
             3,
-            `Processor P_${pId} reads values at index ${targetIdx} (${val1}) and index ${sourceIdx} (${val2})`,
+            `Processor P_${pId} reads values at index ${targetIdx} (${arr[targetIdx]}) and index ${sourceIdx} (${arr[sourceIdx]})`,
             {
               processors: [pId],
               indices: [targetIdx, sourceIdx],
               from: sourceIdx,
               to: targetIdx,
-              msg: val2,
+              msg: arr[sourceIdx],
               arraySnapshot: [...arr],
             },
           );
 
-          let resultVal = val1;
-          let actionDesc = "";
-          if (reductionOp === "sum") {
-            resultVal = val1 + val2;
-            actionDesc = `sum ${val1} + ${val2} = ${resultVal}`;
-          } else if (reductionOp === "min") {
-            resultVal = Math.min(val1, val2);
-            actionDesc = `minimum of (${val1}, ${val2}) = ${resultVal}`;
-          } else if (reductionOp === "max") {
-            resultVal = Math.max(val1, val2);
-            actionDesc = `maximum of (${val1}, ${val2}) = ${resultVal}`;
-          } else if (reductionOp === "product") {
-            resultVal = val1 * val2;
-            actionDesc = `product ${val1} * ${val2} = ${resultVal}`;
-          }
-
-          arr[targetIdx] = resultVal;
+          arr[targetIdx] += arr[sourceIdx];
 
           emit(
             "WRITE",
             3,
-            `Processor P_${pId} stores the ${actionDesc} at index ${targetIdx}`,
+            `Processor P_${pId} stores the sum ${arr[targetIdx]} at index ${targetIdx}`,
             {
               processors: [pId],
               indices: [targetIdx],
@@ -1242,7 +1647,7 @@ export function generateEvents(
         emit(
           "BARRIER",
           5,
-          `Barrier hit: Synchronizing all processors at the end of Level ${d}. Values merged.`,
+          `Barrier hit: Synchronizing all processors at the end of Level ${d}. Sums merged.`,
           {
             indices: Array.from({ length: n }, (_, idx) => idx),
             arraySnapshot: [...arr],
@@ -1250,7 +1655,7 @@ export function generateEvents(
         );
       }
 
-      emit("HIGHLIGHT", 7, `Reduction finished. Total ${opLabel}: ${arr[0]}`, {
+      emit("HIGHLIGHT", 7, `Reduction finished. Total Sum: ${arr[0]}`, {
         indices: [0],
         arraySnapshot: [...arr],
       });
@@ -1259,20 +1664,12 @@ export function generateEvents(
 
     case "parallel-prefix-sum": {
       // Hillis-Steele prefix scan
-      const opLabelMap: Record<string, string> = {
-        sum: "Sum",
-        min: "Min",
-        max: "Max",
-        product: "Product",
-      };
-      const opLabel = opLabelMap[reductionOp] || "Sum";
-
       const arr = [...input] as number[];
       const n = arr.length;
       emit(
         "HIGHLIGHT",
         0,
-        `Start Hillis-Steele Parallel Prefix ${opLabel} on ${n} items using ${processorCount} processors. Array: ` +
+        `Start Hillis-Steele Parallel Prefix Sum on ${n} items using ${processorCount} processors. Array: ` +
           arr.join(", "),
         {
           arraySnapshot: [...arr],
@@ -1307,31 +1704,11 @@ export function generateEvents(
         for (let i = 0; i < n; i++) {
           const pId = i % processorCount;
           if (i >= offset) {
-            const val1 = arr[i];
-            const val2 = arr[i - offset];
-            let resultVal = val1;
-            let actionDesc = "";
-
-            if (reductionOp === "sum") {
-              resultVal = val1 + val2;
-              actionDesc = `sum ${val1} + ${val2} = ${resultVal}`;
-            } else if (reductionOp === "min") {
-              resultVal = Math.min(val1, val2);
-              actionDesc = `minimum of (${val1}, ${val2}) = ${resultVal}`;
-            } else if (reductionOp === "max") {
-              resultVal = Math.max(val1, val2);
-              actionDesc = `maximum of (${val1}, ${val2}) = ${resultVal}`;
-            } else if (reductionOp === "product") {
-              resultVal = val1 * val2;
-              actionDesc = `product ${val1} * ${val2} = ${resultVal}`;
-            }
-
-            temp[i] = resultVal;
-
+            temp[i] = arr[i] + arr[i - offset];
             emit(
               "READ",
               5,
-              `Processor P_${pId} reads A[${i}] (${val1}) and A[${i - offset}] (${val2})`,
+              `Processor P_${pId} reads A[${i}] (${arr[i]}) and A[${i - offset}] (${arr[i - offset]})`,
               {
                 processors: [pId],
                 indices: [i, i - offset],
@@ -1341,7 +1718,7 @@ export function generateEvents(
             emit(
               "WRITE",
               5,
-              `Processor P_${pId} writes ${actionDesc} to temp[${i}]`,
+              `Processor P_${pId} writes sum ${temp[i]} to temp[${i}]`,
               {
                 processors: [pId],
                 indices: [i],
@@ -1371,7 +1748,7 @@ export function generateEvents(
         emit(
           "BARRIER",
           10,
-          `Barrier hit: Copying temp back to active list and synchronizing. Current results: ` +
+          `Barrier hit: Copying temp back to active list and synchronizing. Current sums: ` +
             arr.join(", "),
           {
             indices: Array.from({ length: n }, (_, idx) => idx),
@@ -1384,7 +1761,7 @@ export function generateEvents(
       emit(
         "HIGHLIGHT",
         12,
-        `Parallel Prefix ${opLabel} completed successfully! Final values: ` +
+        `Parallel Prefix Sum completed successfully! Final values: ` +
           arr.join(", "),
         {
           indices: Array.from({ length: n }, (_, idx) => idx),
