@@ -1933,6 +1933,7 @@ export function CanvasVisualizer({
     const data = ((currentEvent?.arraySnapshot || inputData) as number[]) || [];
     const size = data.length || 8;
     const bucketInfo = currentEvent?.bucketData;
+    const isSortingComplete = currentStep === (events?.length || 0) - 1;
 
     // 1. Draw array at the top
     const arrayWidth = w - 160;
@@ -1957,7 +1958,12 @@ export function CanvasVisualizer({
       let textColor = "#e4e4e7";
       let lineWidth = 1.5;
 
-      if (isWrite) {
+      if (isSortingComplete) {
+        strokeColor = "#10b981"; // Completed Emerald
+        fillColor = "#10b98115";
+        textColor = "#34d399";
+        lineWidth = 4.5;
+      } else if (isWrite) {
         strokeColor = "#10b981"; // Emerald
         fillColor = "#10b98115";
         textColor = "#6ee7b7";
@@ -2122,6 +2128,7 @@ export function CanvasVisualizer({
     const size = data.length || 8;
     const radixInfo = currentEvent?.radixData;
     const exp = radixInfo?.exp || 1;
+    const isSortingComplete = currentStep === (events?.length || 0) - 1;
 
     // 1. Draw Array at the top
     const arrayWidth = w - 160;
@@ -2150,7 +2157,12 @@ export function CanvasVisualizer({
       let textColor = "#e4e4e7";
       let lineWidth = 1.5;
 
-      if (isWrite) {
+      if (isSortingComplete) {
+        strokeColor = "#10b981"; // Completed Emerald
+        fillColor = "#10b98115";
+        textColor = "#34d399";
+        lineWidth = 4.5;
+      } else if (isWrite) {
         strokeColor = "#10b981"; // Emerald
         fillColor = "#10b98115";
         textColor = "#6ee7b7";
@@ -2187,7 +2199,8 @@ export function CanvasVisualizer({
         for (let charIdx = 0; charIdx < numStr.length; charIdx++) {
           const char = numStr[charIdx];
           const posFromRight = numStr.length - 1 - charIdx;
-          const isCharActive = posFromRight === activePosFromRight;
+          const isCharActive =
+            !isSortingComplete && posFromRight === activePosFromRight;
 
           ctx.textAlign = "center";
           ctx.fillStyle = isCharActive ? "#f59e0b" : textColor;

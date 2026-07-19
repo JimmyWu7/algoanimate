@@ -3,6 +3,8 @@ import { Geist, Geist_Mono, Inter } from "next/font/google";
 import "./globals.css";
 import { cn } from "@/lib/utils";
 import { Analytics } from "@vercel/analytics/next";
+import { PreferencesProvider } from "@/lib/preferences-context";
+import ClientLayout from "./client-layout";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
@@ -41,7 +43,9 @@ export default function RootLayout({
       )}
     >
       <body className="min-h-full flex flex-col">
-        {children}
+        <PreferencesProvider>
+          <ClientLayout>{children}</ClientLayout>
+        </PreferencesProvider>
         <Analytics />
       </body>
     </html>
