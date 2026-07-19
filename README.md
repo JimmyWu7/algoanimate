@@ -12,7 +12,9 @@ Inspired by high-end developer interfaces (Linear, Vercel, Raycast), the visuali
 - **Micro-Animations & Message Packets**: Time-interpolated floating packet particles sliding between nodes at 60 FPS, providing tactile, clear representations of reads/writes and communications.
 - **Cyberpunk Glow Accents**: Utilizing canvas blur shadows to highlight active cores, data-reads (Cyan), data-writes (Emerald), and comparisons (Amber).
 
----## 🏗️ Software Architecture
+---
+
+## 🏗️ Software Architecture
 
 The application adheres to a strict, event-driven simulation boundary:
 
