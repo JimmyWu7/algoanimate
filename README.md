@@ -12,17 +12,17 @@ Inspired by high-end developer interfaces (Linear, Vercel, Raycast), the visuali
 - **Micro-Animations & Message Packets**: Time-interpolated floating packet particles sliding between nodes at 60 FPS, providing tactile, clear representations of reads/writes and communications.
 - **Cyberpunk Glow Accents**: Utilizing canvas blur shadows to highlight active cores, data-reads (Cyan), data-writes (Emerald), and comparisons (Amber).
 
----
-
-## 🏗️ Software Architecture
+---## 🏗️ Software Architecture
 
 The application adheres to a strict, event-driven simulation boundary:
 
-1. **The Simulation Engine (`/hooks/use-simulation.ts`)**: Generates and manages the playback timeline, step boundaries, synchronization barriers, and aggregates live-updating complexity statistics (Work, Span, Speedup, Efficiency).
-2. **The Generators (`/algorithms/generators.ts`)**: Isolated algorithm executors that operate strictly in memory. They do _not_ animate directly; instead, they emit sequential visual events (e.g. `COMPARE`, `SWAP`, `READ`, `WRITE`, `SEND_MESSAGE`, `BARRIER`).
-3. **The Renderer (`/components/canvas-visualizer.tsx`)**: A high-performance, single-canvas visualizer that reads the current active event frame and draws appropriate hardware, processor lattices, arrays, or node networks.
-4. **The Synchronizer (`/components/algorithm-view.tsx`)**: Reaches into the active step and links visual components directly with line highlights inside the pseudocode panel.
-5. **The AI AlgoTutor (`/components/algorithm-chat.tsx` & `/app/api/chat/route.ts`)**: A real-time synchronized companion assistant utilizing server-side Gemini AI. It automatically analyzes the active simulator state (input data, current step details, and algorithm type) to explain exactly what is happening in natural, approachable language.
+1. **Dynamic URL-Driven Routing**: Utilizes Next.js App Router dynamic paths (`/algorithms/[algorithmId]`) for deep-linking. The active algorithm is determined directly from the URL path as the single source of truth, supporting bookmarking, shareable links, and robust browser history controls.
+2. **Global Preference Context (`/lib/preferences-context.tsx`)**: Synchronizes accessibility rules (Reduce Motion, default core counts) and visual themes seamlessly across layout boundaries and individual dynamic route files.
+3. **The Simulation Engine (`/hooks/use-simulation.ts`)**: Generates and manages the playback timeline, step boundaries, synchronization barriers, and aggregates live-updating complexity statistics (Work, Span, Speedup, Efficiency).
+4. **The Generators (`/algorithms/generators.ts`)**: Isolated algorithm executors that operate strictly in memory. They do _not_ animate directly; instead, they emit sequential visual events (e.g. `COMPARE`, `SWAP`, `READ`, `WRITE`, `SEND_MESSAGE`, `BARRIER`).
+5. **The Renderer (`/components/canvas-visualizer.tsx`)**: A high-performance, single-canvas visualizer that reads the current active event frame and draws appropriate hardware, processor lattices, arrays, or node networks.
+6. **The Synchronizer (`/components/algorithm-view.tsx`)**: Reaches into the active step and links visual components directly with line highlights inside the pseudocode panel.
+7. **The AI AlgoTutor (`/components/algorithm-chat.tsx` & `/app/api/chat/route.ts`)**: A real-time synchronized companion assistant utilizing server-side Gemini AI. It automatically analyzes the active simulator state (input data, current step details, and algorithm type) to explain exactly what is happening in natural, approachable language.
 
 ---
 
@@ -42,30 +42,36 @@ The visualizer features an advanced **AlgoTutor AI** sidebar designed to guide a
 
 ```
 ├── app/
+│   ├── algorithms/
+│   │   └── [algorithmId]/
+│   │       └── page.tsx         # Dynamic page route with algorithm registry validation
 │   ├── api/
 │   │   └── chat/
-│   │       └── route.ts      # Gemini API route with strict CS filters and safety guards
-│   ├── globals.css           # Tailwind CSS global styling
-│   ├── layout.tsx            # Global Next.js layout & metadata
-│   └── page.tsx              # Root page, handles view transitions & sidebar state
+│   │       └── route.ts         # Gemini API route with strict CS filters and safety guards
+│   ├── client-layout.tsx        # Responsive shared layout containing sidebar and settings shell
+│   ├── globals.css              # Tailwind CSS global styling
+│   ├── layout.tsx               # Global Next.js layout with preferences provider
+│   ├── not-found.tsx            # Elegant 404 handler for invalid algorithm routes
+│   └── page.tsx                 # Root dashboard landing page
 ├── components/
-│   ├── algorithm-chat.tsx    # Highly responsive AI tutor drawer & chat interface
-│   ├── algorithm-view.tsx    # Active simulation workstation (panels, logs, tabs)
-│   ├── canvas-visualizer.tsx # Responsive 60fps HTML5 Canvas renderer
-│   ├── dashboard.tsx         # High-end index landing deck (search, cards, metrics)
-│   ├── settings.tsx          # Preferences (core allocation, accessibility filters)
-│   └── sidebar.tsx           # Collapsible vertical navigation rails
+│   ├── algorithm-chat.tsx       # Highly responsive AI tutor drawer & chat interface
+│   ├── algorithm-view.tsx       # Active simulation workstation (panels, logs, tabs)
+│   ├── canvas-visualizer.tsx    # Responsive 60fps HTML5 Canvas renderer
+│   ├── dashboard.tsx            # High-end index landing deck (search, cards, metrics)
+│   ├── settings.tsx             # Preferences (core allocation, accessibility filters)
+│   └── sidebar.tsx              # Collapsible vertical navigation rails
 ├── hooks/
-│   └── use-simulation.ts     # Reusable event-driven playback state controller
+│   └── use-simulation.ts        # Reusable event-driven playback state controller
 ├── lib/
-│   ├── algorithm-codes.ts    # Interactive code-block contents
-│   ├── algorithm-registry.ts # Static catalog database (descriptions, pseudocode)
-│   └── utils.ts              # CN tailwind helper utilities
+│   ├── algorithm-codes.ts       # Interactive code-block contents
+│   ├── algorithm-registry.ts    # Static catalog database (descriptions, pseudocode)
+│   ├── preferences-context.tsx  # React context orchestrating global user state
+│   └── utils.ts                 # CN tailwind helper utilities
 ├── types/
-│   └── algorithms.ts         # Fully typed interfaces for simulation events
-├── metadata.json             # Application metadata
-├── package.json              # NPM package configurations
-└── README.md                 # Platform documentation
+│   └── algorithms.ts            # Fully typed interfaces for simulation events
+├── metadata.json                # Application metadata
+├── package.json                 # NPM package configurations
+└── README.md                    # Platform documentation
 ```
 
 ---
@@ -74,7 +80,7 @@ The visualizer features an advanced **AlgoTutor AI** sidebar designed to guide a
 
 ### 1. Sequential Engines (RAM Model)
 
-- **Sorting Networks**: Bubble Sort, Selection Sort, Insertion Sort, Merge Sort, Quick Sort.
+- **Sorting Networks**: Bubble Sort, Selection Sort, Insertion Sort, Merge Sort, Quick Sort, Heap Sort, Radix Sort, Bucket Sort.
 - **Structures & Traversals**: Binary Search, Breadth-First Search (BFS), Depth-First Search (DFS), A\* Search, Dijkstra's Routing, Prim's Algorithm, Kruskal's Algorithm.
 
 ### 2. Parallel Engines (PRAM & Distributed Networks)
