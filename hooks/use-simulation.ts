@@ -16,6 +16,7 @@ export function useSimulation(
   const [processorCount, setProcessorCount] = useState(
     initialProcessorCount || metadata.defaultProcessorCount || 4,
   );
+  const [topology, setTopology] = useState<"1d" | "2d" | "3d" | "4d">("1d");
   const [speed, setSpeed] = useState(50); // slider 1-100, maps to 1000ms down to 100ms
   const [inputData, setInputData] = useState<any>(null);
   const [events, setEvents] = useState<SimulationEvent[]>([]);
@@ -78,17 +79,24 @@ export function useSimulation(
     return () => clearTimeout(timer);
   }, [algorithmId, inputSize, generateNewInput]);
 
-  // Generate events whenever inputData or processorCount changes
+  // Generate events whenever inputData, processorCount, or topology changes
   useEffect(() => {
     const timer = setTimeout(() => {
       const data = inputData || generateNewInput(inputSize, algorithmId);
-      const evs = generateEvents(algorithmId, data, processorCount);
+      const evs = generateEvents(algorithmId, data, processorCount, topology);
       setEvents(evs);
       setCurrentStep(0);
       setIsPlaying(false);
     }, 0);
     return () => clearTimeout(timer);
-  }, [algorithmId, inputData, processorCount, inputSize, generateNewInput]);
+  }, [
+    algorithmId,
+    inputData,
+    processorCount,
+    inputSize,
+    generateNewInput,
+    topology,
+  ]);
 
   // Map slider speed to millisecond delay (higher speed = shorter delay)
   const getDelay = useCallback(() => {
@@ -245,6 +253,8 @@ export function useSimulation(
     setInputSize,
     processorCount,
     setProcessorCount,
+    topology,
+    setTopology,
     speed,
     setSpeed,
     inputData,

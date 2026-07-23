@@ -38,6 +38,8 @@ export function AlgorithmView({ algorithmId, onBack }: AlgorithmViewProps) {
     setInputSize,
     processorCount,
     setProcessorCount,
+    topology,
+    setTopology,
     speed,
     setSpeed,
     inputData,
@@ -228,6 +230,7 @@ export function AlgorithmView({ algorithmId, onBack }: AlgorithmViewProps) {
             processorCount={processorCount}
             events={events}
             currentStep={currentStep}
+            topology={topology}
           />
 
           {/* Controller Panel */}
@@ -250,9 +253,9 @@ export function AlgorithmView({ algorithmId, onBack }: AlgorithmViewProps) {
               />
             </div>
 
-            {/* Core Playback Control Buttons */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div className="flex items-center gap-2">
+            {/* Core Playback Control Buttons & Configuration Grid */}
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+              <div className="flex items-center gap-2 shrink-0">
                 <button
                   onClick={reset}
                   title="Reset to start"
@@ -291,10 +294,10 @@ export function AlgorithmView({ algorithmId, onBack }: AlgorithmViewProps) {
                 </button>
               </div>
 
-              {/* Sliders: Input Size, Speed, Processors */}
-              <div className="grid grid-cols-2 md:flex md:items-center gap-4 flex-1 max-w-xl justify-end">
+              {/* Sliders and Network Configuration Panel */}
+              <div className="grid grid-cols-2 sm:grid-cols-2 xl:grid-cols-4 gap-3 flex-1 w-full lg:max-w-2xl">
                 {/* Speed Slider */}
-                <div className="space-y-1.5 flex-1 min-w-[110px]">
+                <div className="space-y-1.5 bg-zinc-900/40 border border-zinc-900 p-2 rounded-lg">
                   <div className="flex justify-between text-[10px] font-mono text-zinc-500">
                     <span>SPEED ({speed}%)</span>
                   </div>
@@ -304,13 +307,13 @@ export function AlgorithmView({ algorithmId, onBack }: AlgorithmViewProps) {
                     max="100"
                     value={speed}
                     onChange={(e) => setSpeed(parseInt(e.target.value, 10))}
-                    className="w-full h-1 bg-zinc-900 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                    className="w-full h-1 bg-zinc-900 rounded-lg appearance-none cursor-pointer accent-emerald-500 mt-1"
                   />
                 </div>
 
                 {/* Input Size Slider */}
                 {metadata.category !== "Graphs" && (
-                  <div className="space-y-1.5 flex-1 min-w-[110px]">
+                  <div className="space-y-1.5 bg-zinc-900/40 border border-zinc-900 p-2 rounded-lg">
                     <div className="flex justify-between text-[10px] font-mono text-zinc-500">
                       <span>SIZE ({inputSize})</span>
                     </div>
@@ -322,12 +325,12 @@ export function AlgorithmView({ algorithmId, onBack }: AlgorithmViewProps) {
                       onChange={(e) =>
                         setInputSize(parseInt(e.target.value, 10))
                       }
-                      className="w-full h-1 bg-zinc-900 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                      className="w-full h-1 bg-zinc-900 rounded-lg appearance-none cursor-pointer accent-emerald-500 mt-1"
                     />
                   </div>
                 )}
 
-                {/* Processor Count (Only show for parallel, except bitonic sort which has fixed 16-node topology) */}
+                {/* Processor Count */}
                 {isParallel &&
                   algorithmId !== "bitonic-sort" &&
                   (() => {
@@ -336,30 +339,79 @@ export function AlgorithmView({ algorithmId, onBack }: AlgorithmViewProps) {
                     for (let c = 2; c <= maxC; c *= 2) {
                       allowedCores.push(c);
                     }
+
+                    const isFixedCores = topology === "3d" || topology === "4d";
+                    const displayedCores =
+                      topology === "3d"
+                        ? 8
+                        : topology === "4d"
+                          ? 16
+                          : processorCount;
+
                     return (
-                      <div className="space-y-1.5 flex-1 min-w-[135px]">
+                      <div className="space-y-1.5 bg-zinc-900/40 border border-zinc-900 p-2 rounded-lg">
                         <div className="flex justify-between text-[10px] font-mono text-zinc-500">
-                          <span>CORES ({processorCount})</span>
+                          <span>
+                            CORES ({displayedCores}){" "}
+                            {isFixedCores && (
+                              <span className="text-emerald-500 font-bold text-[8px]">
+                                (AUTO)
+                              </span>
+                            )}
+                          </span>
                         </div>
                         <div className="flex items-center gap-1">
-                          {allowedCores.map((c) => (
-                            <button
-                              key={c}
-                              type="button"
-                              onClick={() => setProcessorCount(c)}
-                              className={`flex-1 text-center py-1 rounded text-xs font-mono font-bold border transition ${
-                                processorCount === c
-                                  ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-400 font-bold"
-                                  : "bg-zinc-900/50 border-zinc-850 text-zinc-400 hover:text-white hover:border-zinc-700"
-                              }`}
-                            >
-                              {c}
-                            </button>
-                          ))}
+                          {allowedCores.map((c) => {
+                            const isActive = displayedCores === c;
+                            const isDisabled = isFixedCores;
+                            return (
+                              <button
+                                key={c}
+                                type="button"
+                                disabled={isDisabled}
+                                onClick={() => setProcessorCount(c)}
+                                className={`flex-1 text-center py-1 rounded text-xs font-mono font-bold border transition ${
+                                  isActive
+                                    ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-400 font-bold"
+                                    : isDisabled
+                                      ? "bg-zinc-950 border-zinc-900 text-zinc-650 cursor-not-allowed"
+                                      : "bg-zinc-900/50 border-zinc-850 text-zinc-400 hover:text-white hover:border-zinc-700"
+                                }`}
+                              >
+                                {c}
+                              </button>
+                            );
+                          })}
                         </div>
                       </div>
                     );
                   })()}
+
+                {/* Topology Selector (Only for reduction and prefix sum) */}
+                {(algorithmId === "parallel-reduction" ||
+                  algorithmId === "parallel-prefix-sum") && (
+                  <div className="space-y-1.5 bg-zinc-900/40 border border-zinc-900 p-2 rounded-lg">
+                    <div className="flex justify-between text-[10px] font-mono text-zinc-500">
+                      <span>NETWORK TOPOLOGY</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {["1d", "2d", "3d", "4d"].map((t) => (
+                        <button
+                          key={t}
+                          type="button"
+                          onClick={() => setTopology(t as any)}
+                          className={`flex-1 text-center py-1 rounded text-[10px] font-mono font-bold border transition uppercase ${
+                            topology === t
+                              ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-400 font-bold"
+                              : "bg-zinc-900/50 border-zinc-850 text-zinc-400 hover:text-white hover:border-zinc-700"
+                          }`}
+                        >
+                          {t}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 

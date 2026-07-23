@@ -651,7 +651,7 @@ export const ALGORITHM_REGISTRY: AlgorithmMetadata[] = [
     defaultInputSize: 8,
     maxInputSize: 16,
     defaultProcessorCount: 4,
-    maxProcessorCount: 8,
+    maxProcessorCount: 16,
   },
   {
     id: "parallel-prefix-sum",

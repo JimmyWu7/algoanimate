@@ -1,6 +1,6 @@
-'use client';
+"use client";
 
-import React, { useState } from 'react';
+import React, { useState } from "react";
 import {
   Home,
   Cpu,
@@ -13,9 +13,9 @@ import {
   Menu,
   Activity,
   Award,
-} from 'lucide-react';
-import { ALGORITHM_REGISTRY } from '@/lib/algorithm-registry';
-import { AlgorithmId } from '@/types/algorithms';
+} from "lucide-react";
+import { ALGORITHM_REGISTRY } from "@/lib/algorithm-registry";
+import { AlgorithmId } from "@/types/algorithms";
 
 interface SidebarProps {
   activeAlgorithmId: AlgorithmId | null;
@@ -31,17 +31,19 @@ export function Sidebar({
   setOpenSettings,
 }: SidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Group algorithms by categories
-  const sequentialAlgs = ALGORITHM_REGISTRY.filter(a => a.type === 'sequential');
-  const parallelAlgs = ALGORITHM_REGISTRY.filter(a => a.type === 'parallel');
+  const sequentialAlgs = ALGORITHM_REGISTRY.filter(
+    (a) => a.type === "sequential",
+  );
+  const parallelAlgs = ALGORITHM_REGISTRY.filter((a) => a.type === "parallel");
 
   const filterAlgorithms = (list: typeof ALGORITHM_REGISTRY) => {
     return list.filter(
-      a =>
+      (a) =>
         a.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        a.category.toLowerCase().includes(searchQuery.toLowerCase())
+        a.category.toLowerCase().includes(searchQuery.toLowerCase()),
     );
   };
 
@@ -52,7 +54,7 @@ export function Sidebar({
     <div
       id="app-sidebar"
       className={`relative h-screen border-r border-zinc-900 bg-zinc-950 transition-all duration-300 flex flex-col z-20 ${
-        isCollapsed ? 'w-16' : 'w-64'
+        isCollapsed ? "w-16" : "w-64"
       }`}
     >
       {/* Brand Header */}
@@ -82,7 +84,11 @@ export function Sidebar({
           onClick={() => setIsCollapsed(!isCollapsed)}
           className="text-zinc-400 hover:text-zinc-100 p-1.5 rounded-md hover:bg-zinc-900 hidden md:block"
         >
-          {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+          {isCollapsed ? (
+            <ChevronRight className="h-4 w-4" />
+          ) : (
+            <ChevronLeft className="h-4 w-4" />
+          )}
         </button>
       </div>
 
@@ -95,7 +101,7 @@ export function Sidebar({
               type="text"
               placeholder="Search algorithms..."
               value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
+              onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full bg-zinc-900 border border-zinc-800 rounded-lg py-1.5 pl-9 pr-3 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-zinc-700 transition"
             />
           </div>
@@ -113,11 +119,11 @@ export function Sidebar({
             }}
             className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition ${
               activeAlgorithmId === null && !openSettings
-                ? 'bg-zinc-900 text-emerald-400 border border-zinc-800'
-                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/50'
+                ? "bg-zinc-900 text-emerald-400 border border-zinc-800"
+                : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/50"
             }`}
           >
-            <Home className="h-4 w-4 shrink-0" />
+            <Home className="h-4 w-4 flex-shrink-0" />
             {!isCollapsed && <span>Dashboard Overview</span>}
           </button>
         </div>
@@ -130,7 +136,7 @@ export function Sidebar({
             </div>
           )}
           <div className="space-y-0.5">
-            {filteredSeq.map(alg => (
+            {filteredSeq.map((alg) => (
               <button
                 key={alg.id}
                 onClick={() => {
@@ -139,16 +145,20 @@ export function Sidebar({
                 }}
                 className={`w-full flex items-center gap-3 px-3 py-1.5 rounded-lg text-xs transition ${
                   activeAlgorithmId === alg.id
-                    ? 'bg-emerald-500/10 text-emerald-400 font-medium'
-                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/40'
+                    ? "bg-emerald-500/10 text-emerald-400 font-medium"
+                    : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/40"
                 }`}
               >
-                <Layers className={`h-3.5 w-3.5 shrink-0 ${activeAlgorithmId === alg.id ? 'text-emerald-400' : 'text-zinc-500'}`} />
+                <Layers
+                  className={`h-3.5 w-3.5 flex-shrink-0 ${activeAlgorithmId === alg.id ? "text-emerald-400" : "text-zinc-500"}`}
+                />
                 {!isCollapsed && <span className="truncate">{alg.name}</span>}
               </button>
             ))}
             {!isCollapsed && filteredSeq.length === 0 && (
-              <span className="text-[10px] text-zinc-600 px-3 italic">No results</span>
+              <span className="text-[10px] text-zinc-600 px-3 italic">
+                No results
+              </span>
             )}
           </div>
         </div>
@@ -161,7 +171,7 @@ export function Sidebar({
             </div>
           )}
           <div className="space-y-0.5">
-            {filteredPar.map(alg => (
+            {filteredPar.map((alg) => (
               <button
                 key={alg.id}
                 onClick={() => {
@@ -170,16 +180,20 @@ export function Sidebar({
                 }}
                 className={`w-full flex items-center gap-3 px-3 py-1.5 rounded-lg text-xs transition ${
                   activeAlgorithmId === alg.id
-                    ? 'bg-emerald-500/10 text-emerald-400 font-medium'
-                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/40'
+                    ? "bg-emerald-500/10 text-emerald-400 font-medium"
+                    : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/40"
                 }`}
               >
-                <GitBranch className={`h-3.5 w-3.5 shrink-0 ${activeAlgorithmId === alg.id ? 'text-emerald-400' : 'text-zinc-500'}`} />
+                <GitBranch
+                  className={`h-3.5 w-3.5 flex-shrink-0 ${activeAlgorithmId === alg.id ? "text-emerald-400" : "text-zinc-500"}`}
+                />
                 {!isCollapsed && <span className="truncate">{alg.name}</span>}
               </button>
             ))}
             {!isCollapsed && filteredPar.length === 0 && (
-              <span className="text-[10px] text-zinc-600 px-3 italic">No results</span>
+              <span className="text-[10px] text-zinc-600 px-3 italic">
+                No results
+              </span>
             )}
           </div>
         </div>
@@ -190,15 +204,14 @@ export function Sidebar({
         <button
           onClick={() => {
             setOpenSettings(true);
-            onSelectAlgorithm(null);
           }}
           className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition ${
             openSettings
-              ? 'bg-zinc-900 text-emerald-400 border border-zinc-800'
-              : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/50'
+              ? "bg-zinc-900 text-emerald-400 border border-zinc-800"
+              : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/50"
           }`}
         >
-          <Settings className="h-4 w-4 shrink-0" />
+          <Settings className="h-4 w-4 flex-shrink-0" />
           {!isCollapsed && <span>Preferences</span>}
         </button>
       </div>

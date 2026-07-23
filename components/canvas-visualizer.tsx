@@ -16,6 +16,7 @@ interface CanvasVisualizerProps {
   processorCount: number;
   events?: SimulationEvent[];
   currentStep?: number;
+  topology?: "1d" | "2d" | "3d" | "4d";
 }
 
 interface MessagePacket {
@@ -38,6 +39,7 @@ export function CanvasVisualizer({
   processorCount,
   events = [],
   currentStep = 0,
+  topology = "1d",
 }: CanvasVisualizerProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -46,6 +48,130 @@ export function CanvasVisualizer({
 
   // Track the previous step to trigger new packets on change
   const lastStepRef = useRef<number>(-1);
+
+  const drawArrow = (
+    c: CanvasRenderingContext2D,
+    fromX: number,
+    fromY: number,
+    toX: number,
+    toY: number,
+    color: string,
+    label: string,
+  ) => {
+    c.save();
+    c.strokeStyle = color;
+    c.fillStyle = color;
+    c.lineWidth = 2.5;
+
+    // Draw the line
+    c.beginPath();
+    c.moveTo(fromX, fromY);
+    c.lineTo(toX, toY);
+    c.stroke();
+
+    // Draw arrowhead
+    const angle = Math.atan2(toY - fromY, toX - fromX);
+    const headLength = 12;
+    c.beginPath();
+    c.moveTo(toX, toY);
+    c.lineTo(
+      toX - headLength * Math.cos(angle - Math.PI / 6),
+      toY - headLength * Math.sin(angle - Math.PI / 6),
+    );
+    c.lineTo(
+      toX - headLength * Math.cos(angle + Math.PI / 6),
+      toY - headLength * Math.sin(angle + Math.PI / 6),
+    );
+    c.closePath();
+    c.fill();
+
+    // Draw label next to the arrow at midpoint with subtle perpendicular offset
+    const midX = (fromX + toX) / 2;
+    const midY = (fromY + toY) / 2;
+    const perpX = -Math.sin(angle);
+    const perpY = Math.cos(angle);
+    const textOffset = 18;
+    const labelX = midX + perpX * textOffset;
+    const labelY = midY + perpY * textOffset;
+
+    c.font = "bold 9px var(--font-mono, monospace)";
+    c.textAlign = "center";
+    c.textBaseline = "middle";
+
+    // Semi-transparent dark background for the text to ensure excellent readability
+    c.save();
+    c.fillStyle = "#09090b";
+    const textWidth = c.measureText(label).width + 8;
+    c.fillRect(labelX - textWidth / 2, labelY - 7, textWidth, 14);
+    c.strokeStyle = color + "40"; // subtle transparent border
+    c.lineWidth = 1;
+    c.strokeRect(labelX - textWidth / 2, labelY - 7, textWidth, 14);
+    c.restore();
+
+    c.fillStyle = color;
+    c.fillText(label, labelX, labelY);
+
+    c.restore();
+  };
+
+  const drawCurvedArrow = (
+    c: CanvasRenderingContext2D,
+    fromX: number,
+    fromY: number,
+    toX: number,
+    toY: number,
+    cpX: number,
+    cpY: number,
+    color: string,
+    label: string,
+  ) => {
+    c.save();
+    c.strokeStyle = color;
+    c.fillStyle = color;
+    c.lineWidth = 2.5;
+
+    c.beginPath();
+    c.moveTo(fromX, fromY);
+    c.quadraticCurveTo(cpX, cpY, toX, toY);
+    c.stroke();
+
+    const angle = Math.atan2(toY - cpY, toX - cpX);
+    const headLength = 12;
+
+    c.beginPath();
+    c.moveTo(toX, toY);
+    c.lineTo(
+      toX - headLength * Math.cos(angle - Math.PI / 6),
+      toY - headLength * Math.sin(angle - Math.PI / 6),
+    );
+    c.lineTo(
+      toX - headLength * Math.cos(angle + Math.PI / 6),
+      toY - headLength * Math.sin(angle + Math.PI / 6),
+    );
+    c.closePath();
+    c.fill();
+
+    const midX = 0.25 * fromX + 0.5 * cpX + 0.25 * toX;
+    const midY = 0.25 * fromY + 0.5 * cpY + 0.25 * toY;
+
+    c.font = "bold 9px var(--font-mono, monospace)";
+    c.textAlign = "center";
+    c.textBaseline = "middle";
+
+    c.save();
+    c.fillStyle = "#09090b";
+    const textWidth = c.measureText(label).width + 8;
+    c.fillRect(midX - textWidth / 2, midY - 7, textWidth, 14);
+    c.strokeStyle = color + "40";
+    c.lineWidth = 1;
+    c.strokeRect(midX - textWidth / 2, midY - 7, textWidth, 14);
+    c.restore();
+
+    c.fillStyle = color;
+    c.fillText(label, midX, midY);
+
+    c.restore();
+  };
 
   // Responsive canvas resizing
   useEffect(() => {
@@ -191,14 +317,82 @@ export function CanvasVisualizer({
   const getPacketEndpoints = (
     from: number,
     to: number,
-    topology: ComputationalModelId,
+    topologyStr: string,
     pCount: number,
     w: number,
     h: number,
     data: any,
   ) => {
-    // Hypercube, Ring, Tree packet nodes endpoint resolver
-    if (topology === "Ring") {
+    // 1D Array / PRAM topology
+    if (
+      topologyStr === "1d" ||
+      topologyStr === "PRAM" ||
+      topologyStr === "PRAM-EREW" ||
+      topologyStr === "PRAM-CREW" ||
+      topologyStr === "PRAM-CRCW" ||
+      topologyStr === "1d-array"
+    ) {
+      const pWidth = w - 160;
+      const pSpacing = pWidth / (pCount - 1 || 1);
+      const pY = 80;
+      const fromX = 80 + from * pSpacing;
+      const toX = 80 + to * pSpacing;
+      return { fromX, fromY: pY, toX, toY: pY };
+    }
+
+    // 2D Mesh topology
+    if (topologyStr === "2d" || topologyStr === "Mesh") {
+      let gridCols = 4;
+      let gridRows = 2;
+      if (pCount === 2) {
+        gridCols = 2;
+        gridRows = 1;
+      } else if (pCount === 4) {
+        gridCols = 2;
+        gridRows = 2;
+      } else if (pCount === 8) {
+        gridCols = 4;
+        gridRows = 2;
+      } else if (pCount === 16) {
+        gridCols = 4;
+        gridRows = 4;
+      } else {
+        gridCols = Math.ceil(Math.sqrt(pCount));
+        gridRows = Math.ceil(pCount / gridCols);
+      }
+      const spacingX = pCount <= 4 ? 190 : gridCols > 3 ? 130 : 160;
+      const spacingY = pCount <= 4 ? 120 : gridRows > 3 ? 75 : 100;
+      const xStart = w / 2 - ((gridCols - 1) * spacingX) / 2;
+      const yStart = h / 2 - ((gridRows - 1) * spacingY) / 2 + 15;
+
+      const rFrom = Math.floor(from / gridCols);
+      const cFrom = from % gridCols;
+      const fromX = xStart + cFrom * spacingX;
+      const fromY = yStart + rFrom * spacingY;
+
+      const rTo = Math.floor(to / gridCols);
+      const cTo = to % gridCols;
+      const toX = xStart + cTo * spacingX;
+      const toY = yStart + rTo * spacingY;
+
+      return { fromX, fromY, toX, toY };
+    }
+
+    // Hypercube / 3D / 4D
+    if (
+      topologyStr === "3d" ||
+      topologyStr === "4d" ||
+      topologyStr === "Hypercube"
+    ) {
+      const isBitonic = algorithmId === "bitonic-sort";
+      const N = isBitonic || topologyStr === "4d" ? 16 : 8;
+      const fC = getHypercubeNodeCoords(from, N, w, h);
+      const tC = getHypercubeNodeCoords(to, N, w, h);
+      return { fromX: fC.x, fromY: fC.y, toX: tC.x, toY: tC.y };
+    }
+
+    // Ring topology
+    if (topologyStr === "Ring") {
       const centerX = w / 2;
       const centerY = h / 2;
       const radius = 110;
@@ -214,26 +408,14 @@ export function CanvasVisualizer({
       return { fromX: fC.x, fromY: fC.y, toX: tC.x, toY: tC.y };
     }
 
-    if (topology === "Hypercube") {
-      const isBitonic = algorithmId === "bitonic-sort";
-      const arrSize = isBitonic ? 16 : Array.isArray(data) ? data.length : 8;
-      const fC = getHypercubeNodeCoords(from, arrSize, w, h);
-      const tC = getHypercubeNodeCoords(to, arrSize, w, h);
-      return { fromX: fC.x, fromY: fC.y, toX: tC.x, toY: tC.y };
-    }
-
-    if (topology === "Tree") {
+    if (topologyStr === "Tree") {
       const size = data?.length || 8;
       const getTreeCoords = (id: number) => {
-        // Simple 3 layer binary tree of reduction
-        const layers = 3;
         const leavesY = h - 120;
         const leavesSpacing = (w - 160) / (size - 1 || 1);
-        // Find layer position dynamically
         if (id < size) {
           return { x: 80 + id * leavesSpacing, y: leavesY };
         }
-        // Internals (approximation)
         return { x: w / 2, y: 120 };
       };
       const fC = getTreeCoords(from);
@@ -412,6 +594,17 @@ export function CanvasVisualizer({
     const data = ((currentEvent?.arraySnapshot || inputData) as number[]) || [];
     const size = data.length || 8;
 
+    const CHUNK_COLORS = [
+      "#38bdf8", // cyan
+      "#fbbf24", // amber
+      "#34d399", // emerald
+      "#a78bfa", // violet
+      "#fb7185", // rose
+      "#60a5fa", // blue
+      "#f97316", // orange
+      "#a3e635", // lime
+    ];
+
     // 1. Draw Processors
     const pWidth = w - 160;
     const pSpacing = pWidth / (processorCount - 1 || 1);
@@ -425,23 +618,138 @@ export function CanvasVisualizer({
       pY - 20,
     );
 
+    const desc = currentEvent?.description?.toLowerCase() || "";
+    const isChunkPartitionStep =
+      Boolean(
+        currentEvent?.blockRanges && currentEvent.blockRanges.length > 0,
+      ) &&
+      (desc.includes("partitioned") || currentEvent?.step === 1);
+    const isLocalComplete =
+      desc.includes("local reduction complete") ||
+      desc.includes("local chunk reductions complete") ||
+      desc.includes("local scans complete");
+    const isAlgorithmComplete =
+      desc.includes("complete") && !desc.includes("local");
+    const isPrefixSum = algorithmId === "parallel-prefix-sum";
+    const isReduction = algorithmId === "parallel-reduction";
+
     for (let p = 0; p < processorCount; p++) {
       const pX = 80 + p * pSpacing;
 
-      // Detect if processor is active
+      // Detect if processor is active or sender
       const isActive = currentEvent?.processors?.includes(p);
+      const isSender =
+        currentEvent?.sendingProcessors?.includes(p) ||
+        currentEvent?.communications?.some(
+          (c: any) => (c.fromP ?? c.from) === p,
+        );
+      const isIdle =
+        currentEvent?.idleProcessors?.includes(p) ||
+        (currentEvent?.arraySnapshot && p >= currentEvent.arraySnapshot.length);
+
       let ringColor = "#52525b"; // Brighter gray
       let nodeFill = "#09090b";
       let textCol = "#71717a"; // Brighter gray
 
-      if (isActive) {
-        ringColor = "#f59e0b"; // active orange glow
+      let accFill = "#18181b";
+      let accBorder = "#3f3f46";
+      let accText = "#a1a1aa";
+
+      if (isIdle) {
+        ringColor = "#18181b";
+        nodeFill = "#09090b";
+        textCol = "#3f3f46";
+        accFill = "#09090b";
+        accBorder = "#18181b";
+        accText = "#3f3f46";
+      } else if (isLocalComplete) {
+        ringColor = "#10b981";
+        nodeFill = "#10b98120";
+        textCol = "#34d399";
+        accFill = "#10b98125";
+        accBorder = "#10b981";
+        accText = "#34d399";
+      } else if (isAlgorithmComplete) {
+        if (isPrefixSum) {
+          ringColor = "#10b981";
+          nodeFill = "#10b98120";
+          textCol = "#34d399";
+          accFill = "#10b98125";
+          accBorder = "#10b981";
+          accText = "#34d399";
+        } else if (isReduction) {
+          if (p === 0) {
+            ringColor = "#10b981";
+            nodeFill = "#10b98120";
+            textCol = "#34d399";
+            accFill = "#10b98125";
+            accBorder = "#10b981";
+            accText = "#34d399";
+          } else {
+            ringColor = "#18181b";
+            nodeFill = "#09090b";
+            textCol = "#3f3f46";
+            accFill = "#09090b";
+            accBorder = "#18181b";
+            accText = "#3f3f46";
+          }
+        }
+      } else if (isChunkPartitionStep) {
+        const hasChunk =
+          (currentEvent?.pChunks?.[p] && currentEvent.pChunks[p].length > 0) ||
+          (currentEvent?.blockRanges?.[p] &&
+            currentEvent.blockRanges[p][0] < size);
+        if (hasChunk) {
+          const color = CHUNK_COLORS[p % CHUNK_COLORS.length];
+          ringColor = color;
+          nodeFill = color + "20";
+          textCol = color;
+          accFill = color + "25";
+          accBorder = color;
+          accText = color;
+        }
+      } else if (isActive) {
+        ringColor = "#f59e0b"; // Active orange glow
         nodeFill = "#d9770615";
         textCol = "#fbbf24";
+        accFill = "#d9770630";
+        accBorder = "#f59e0b";
+        accText = "#fbbf24";
+      } else if (isSender) {
+        ringColor = "#38bdf8"; // Sky blue for sender processor
+        nodeFill = "#0284c720";
+        textCol = "#38bdf8";
+        accFill = "#0284c730";
+        accBorder = "#38bdf8";
+        accText = "#38bdf8";
       }
 
-      ctx.shadowColor = isActive ? "#f59e0b50" : "transparent";
-      ctx.shadowBlur = isActive ? 10 : 0;
+      const isPChunkActive =
+        isChunkPartitionStep &&
+        ((currentEvent?.pChunks?.[p] && currentEvent.pChunks[p].length > 0) ||
+          (currentEvent?.blockRanges?.[p] &&
+            currentEvent.blockRanges[p][0] < size));
+
+      ctx.shadowColor =
+        !isIdle &&
+        (isLocalComplete || (isAlgorithmComplete && (isPrefixSum || p === 0)))
+          ? "#10b98150"
+          : isPChunkActive
+            ? CHUNK_COLORS[p % CHUNK_COLORS.length] + "50"
+            : isSender
+              ? "#0284c750"
+              : isActive && !isIdle
+                ? "#f59e0b50"
+                : "transparent";
+      ctx.shadowBlur =
+        !isIdle &&
+        (isLocalComplete ||
+          isAlgorithmComplete ||
+          isSender ||
+          isActive ||
+          isPChunkActive)
+          ? 10
+          : 0;
 
       ctx.fillStyle = nodeFill;
       ctx.beginPath();
@@ -449,7 +757,14 @@ export function CanvasVisualizer({
       ctx.fill();
 
       ctx.strokeStyle = ringColor;
-      ctx.lineWidth = isActive ? 3 : 1.5;
+      ctx.lineWidth =
+        isLocalComplete ||
+        isAlgorithmComplete ||
+        isSender ||
+        isActive ||
+        isPChunkActive
+          ? 3
+          : 1.5;
       ctx.stroke();
 
       ctx.shadowBlur = 0; // reset
@@ -459,26 +774,103 @@ export function CanvasVisualizer({
       ctx.font = "bold 11px var(--font-mono, monospace)";
       ctx.textAlign = "center";
       ctx.fillText(`P${p}`, pX, pY + 4);
+
+      // Display processor register / accumulator value below processor node if available
+      if (currentEvent?.pValues && currentEvent.pValues[p] !== undefined) {
+        ctx.save();
+        ctx.font = "bold 10px var(--font-mono, monospace)";
+        ctx.textAlign = "center";
+        const valStr = `Acc: ${currentEvent.pValues[p]}`;
+        const valW = ctx.measureText(valStr).width + 8;
+        ctx.fillStyle = accFill;
+        ctx.strokeStyle = accBorder;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(pX - valW / 2, pY + 23, valW, 16, 4);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = accText;
+        ctx.fillText(valStr, pX, pY + 35);
+        ctx.restore();
+      }
     }
     ctx.textAlign = "left";
 
+    // 1.5 Inter-processor Communication Arched Arrows (1D Topology)
+    if (
+      currentEvent &&
+      Array.isArray(currentEvent.communications) &&
+      currentEvent.communications.length > 0
+    ) {
+      currentEvent.communications.forEach((comm: any) => {
+        const fromP = comm.fromP ?? comm.from;
+        const toP = comm.toP ?? comm.to;
+        if (
+          typeof fromP === "number" &&
+          typeof toP === "number" &&
+          fromP < processorCount &&
+          toP < processorCount
+        ) {
+          const fromX = 80 + fromP * pSpacing;
+          const toX = 80 + toP * pSpacing;
+          const dist = Math.abs(fromX - toX);
+          const archH = Math.min(55, 20 + dist * 0.2);
+          const cpX = (fromX + toX) / 2;
+          const cpY = pY - 18 - archH;
+
+          ctx.save();
+          ctx.strokeStyle = "#38bdf8";
+          ctx.lineWidth = 2;
+          ctx.setLineDash([4, 4]);
+          ctx.beginPath();
+          ctx.moveTo(fromX, pY - 18);
+          ctx.quadraticCurveTo(cpX, cpY, toX, pY - 18);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          // Tail dot at sender (fromX) in blue
+          ctx.fillStyle = "#38bdf8";
+          ctx.beginPath();
+          ctx.arc(fromX, pY - 18, 4, 0, 2 * Math.PI);
+          ctx.fill();
+
+          // Head dot at receiver (toX) in blue
+          ctx.fillStyle = "#38bdf8";
+          ctx.beginPath();
+          ctx.arc(toX, pY - 18, 4, 0, 2 * Math.PI);
+          ctx.fill();
+
+          if (comm.label || comm.value !== undefined) {
+            ctx.font = "bold 10px var(--font-mono, monospace)";
+            ctx.fillStyle = "#7dd3fc";
+            ctx.textAlign = "center";
+            const curvePeakY = pY - 18 - archH / 2;
+            ctx.fillText(String(comm.label || comm.value), cpX, curvePeakY - 3);
+          }
+          ctx.restore();
+        }
+      });
+    }
+
     // 2. Draw Bus Interconnect Crossbar lanes
+    const busY = pY + 190;
     ctx.strokeStyle = "#3f3f46"; // Brighter gray
     ctx.lineWidth = 1;
     for (let p = 0; p < processorCount; p++) {
       const pX = 80 + p * pSpacing;
       ctx.beginPath();
       ctx.moveTo(pX, pY + 18);
-      ctx.lineTo(pX, h - 135);
+      ctx.lineTo(pX, busY);
       ctx.stroke();
     }
 
     // Bus line
     ctx.strokeStyle = "#52525b"; // Brighter gray
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(80, h - 135);
-    ctx.lineTo(w - 80, h - 135);
+    ctx.moveTo(80, busY);
+    ctx.lineTo(w - 80, busY);
     ctx.stroke();
 
     // 3. Draw Shared Memory cells
@@ -487,9 +879,62 @@ export function CanvasVisualizer({
     const memY = h - 100;
     const memHeight = 50;
 
+    // Chunk ownership partitions visualization if size > processorCount
+    const hasChunking =
+      size > processorCount ||
+      (currentEvent?.blockRanges && currentEvent.blockRanges.length > 0);
+
+    if (hasChunking && processorCount > 1) {
+      const blockSize = Math.ceil(size / processorCount);
+      const ranges: [number, number][] =
+        currentEvent?.blockRanges ||
+        Array.from({ length: processorCount }, (_, p) => [
+          p * blockSize,
+          Math.min(size - 1, (p + 1) * blockSize - 1),
+        ]);
+
+      ctx.save();
+      ranges.forEach(([startIdx, endIdx]: [number, number], p: number) => {
+        if (p >= processorCount || startIdx >= size) return;
+        const validEnd = Math.min(size - 1, endIdx);
+        const chunkX = 80 + startIdx * cellWidth;
+        const chunkWidth = (validEnd - startIdx + 1) * cellWidth;
+        const color = CHUNK_COLORS[p % CHUNK_COLORS.length];
+        const isProcActive = currentEvent?.processors?.includes(p);
+
+        // Header pill above chunk of memory cells
+        const headerY = memY - 38;
+        ctx.fillStyle = color + (isProcActive ? "35" : "18");
+        ctx.beginPath();
+        ctx.roundRect(chunkX + 2, headerY, chunkWidth - 4, 18, 4);
+        ctx.fill();
+
+        ctx.strokeStyle = color;
+        ctx.lineWidth = isProcActive ? 2 : 1;
+        ctx.stroke();
+
+        ctx.fillStyle = color;
+        ctx.font = "bold 9px var(--font-mono, monospace)";
+        ctx.textAlign = "center";
+        ctx.fillText(
+          `P${p} Chunk [${startIdx}..${validEnd}]`,
+          chunkX + chunkWidth / 2,
+          headerY + 12,
+        );
+
+        // Top accent line on cells in chunk
+        for (let i = startIdx; i <= validEnd; i++) {
+          const mX = 80 + i * cellWidth;
+          ctx.fillStyle = color;
+          ctx.fillRect(mX + 3, memY, cellWidth - 6, 3);
+        }
+      });
+      ctx.restore();
+    }
+
     ctx.font = "10px var(--font-mono, monospace)";
     ctx.fillStyle = "#52525b";
-    ctx.fillText("SHARED CENTRAL RANDOM ACCESS MEMORY", 80, memY - 12);
+    ctx.fillText("SHARED CENTRAL RANDOM ACCESS MEMORY", 80, memY - 6);
 
     data.forEach((val, i) => {
       const mX = 80 + i * cellWidth;
@@ -499,8 +944,39 @@ export function CanvasVisualizer({
       let back = "#09090b";
       let fontColor = "#a1a1aa";
 
-      if (isVisited) {
-        if (currentEvent?.type === "WRITE") {
+      const isPrefixSum = algorithmId === "parallel-prefix-sum";
+      const isReduction = algorithmId === "parallel-reduction";
+
+      if (isAlgorithmComplete) {
+        if (isPrefixSum) {
+          border = "#10b981";
+          back = "#10b98115";
+          fontColor = "#34d399";
+        } else if (isReduction) {
+          if (i === 0) {
+            border = "#10b981";
+            back = "#10b98115";
+            fontColor = "#34d399";
+          }
+        }
+      } else if (isChunkPartitionStep) {
+        let chunkP = -1;
+        if (currentEvent?.blockRanges) {
+          chunkP = currentEvent.blockRanges.findIndex(
+            ([s, e]: [number, number]) => i >= s && i <= e,
+          );
+        } else {
+          const blockSize = Math.ceil(size / processorCount);
+          chunkP = Math.floor(i / blockSize);
+        }
+        if (chunkP !== -1 && chunkP < processorCount) {
+          const color = CHUNK_COLORS[chunkP % CHUNK_COLORS.length];
+          border = color;
+          back = color + "20";
+          fontColor = color;
+        }
+      } else if (isVisited) {
+        if (currentEvent?.type === "WRITE" || isAlgorithmComplete) {
           border = "#10b981";
           back = "#10b98115";
           fontColor = "#34d399";
@@ -523,7 +999,7 @@ export function CanvasVisualizer({
       ctx.fillRect(mX + 2, memY, cellWidth - 4, memHeight);
 
       ctx.strokeStyle = border;
-      ctx.lineWidth = isVisited ? 2.5 : 1.5;
+      ctx.lineWidth = isVisited || isChunkPartitionStep ? 2.5 : 1.5;
       ctx.beginPath();
       ctx.roundRect(mX + 2, memY, cellWidth - 4, memHeight, 4);
       ctx.stroke();
@@ -540,6 +1016,55 @@ export function CanvasVisualizer({
       ctx.fillText(String(val), mX + cellWidth / 2, memY + memHeight / 2 + 10);
       ctx.textAlign = "left";
     });
+
+    // Custom arrows for Parallel Reduction & Parallel Prefix Sum
+    if (
+      (algorithmId === "parallel-reduction" ||
+        algorithmId === "parallel-prefix-sum") &&
+      currentEvent &&
+      currentEvent.processors &&
+      currentEvent.indices
+    ) {
+      const isWrite = currentEvent.type === "WRITE";
+      const isRead =
+        currentEvent.type === "READ" || currentEvent.type === "SEND_MESSAGE";
+
+      if (isRead || isWrite) {
+        currentEvent.processors.forEach((pId, idx) => {
+          const cellIdx =
+            currentEvent.indices![idx] ?? currentEvent.indices![0];
+
+          if (typeof cellIdx === "number" && cellIdx >= 0 && cellIdx < size) {
+            const pX = 80 + pId * pSpacing;
+            const cellX = 80 + cellIdx * cellWidth + cellWidth / 2;
+
+            if (isRead) {
+              // Arrow from memory to processor (READ)
+              drawArrow(
+                ctx,
+                cellX,
+                memY,
+                pX,
+                pY + 18,
+                "#06b6d4", // Cyan
+                "READ",
+              );
+            } else if (isWrite) {
+              // Arrow from processor to memory (WRITE)
+              drawArrow(
+                ctx,
+                pX,
+                pY + 18,
+                cellX,
+                memY,
+                "#10b981", // Emerald
+                "WRITE",
+              );
+            }
+          }
+        });
+      }
+    }
   };
 
   const renderRingLayout = (
@@ -611,20 +1136,42 @@ export function CanvasVisualizer({
     w: number,
     h: number,
   ) => {
-    // Grid processors
-    const gridCols = 4;
-    const gridRows = 2;
-    const spacingX = 140;
-    const spacingY = 110;
+    // Grid processors calculated dynamically based on simulated processors P
+    const P = currentEvent?.pValues?.length || processorCount;
+    let gridCols = 4;
+    let gridRows = 2;
+    if (P === 2) {
+      gridCols = 2;
+      gridRows = 1;
+    } else if (P === 4) {
+      gridCols = 2;
+      gridRows = 2;
+    } else if (P === 8) {
+      gridCols = 4;
+      gridRows = 2;
+    } else if (P === 16) {
+      gridCols = 4;
+      gridRows = 4;
+    } else {
+      gridCols = Math.ceil(Math.sqrt(P));
+      gridRows = Math.ceil(P / gridCols);
+    }
+
+    const spacingX = P <= 4 ? 190 : gridCols > 3 ? 130 : 160;
+    const spacingY = P <= 4 ? 120 : gridRows > 3 ? 75 : 100;
     const xStart = w / 2 - ((gridCols - 1) * spacingX) / 2;
-    const yStart = h / 2 - ((gridRows - 1) * spacingY) / 2;
+    const yStart = h / 2 - ((gridRows - 1) * spacingY) / 2 + 15;
 
     ctx.font = "11px var(--font-mono, monospace)";
     ctx.fillStyle = "#52525b";
-    ctx.fillText("DISTRIBUTED MEMORY MODEL: 2D GRID MESH TOPOLOGY", 40, 40);
+    ctx.fillText(
+      `DISTRIBUTED MEMORY MODEL: 2D GRID MESH TOPOLOGY (${gridRows}x${gridCols})`,
+      40,
+      40,
+    );
 
     // Draw interconnect lines
-    ctx.strokeStyle = "#3f3f46"; // Brighter gray interconnect lines
+    ctx.strokeStyle = "#27272a"; // Zinc 800
     ctx.lineWidth = 1.5;
 
     // Horizontal links
@@ -644,46 +1191,189 @@ export function CanvasVisualizer({
     }
 
     // Draw processors
-    const data = ((currentEvent?.arraySnapshot || inputData) as number[]) || [];
+    const pData =
+      currentEvent?.pValues || currentEvent?.arraySnapshot || inputData || [];
+    const nodeW = P <= 4 ? 80 : 52;
+    const nodeH = P <= 4 ? 54 : 44;
+
     for (let r = 0; r < gridRows; r++) {
       for (let c = 0; c < gridCols; c++) {
         const id = r * gridCols + c;
+        if (id >= P) continue;
+
         const x = xStart + c * spacingX;
         const y = yStart + r * spacingY;
-        const val = data[id] !== undefined ? data[id] : 0;
+        const val = pData[id] !== undefined ? pData[id] : 0;
 
-        const isVisited = currentEvent?.indices?.includes(id);
-        let border = "#52525b"; // Brighter gray node border
+        const isSender =
+          currentEvent?.sendingProcessors?.includes(id) ||
+          currentEvent?.communications?.some((c: any) => c.fromP === id);
+        const isReceiver =
+          currentEvent?.processors?.includes(id) ||
+          currentEvent?.communications?.some((c: any) => c.toP === id);
+        const isActive = currentEvent?.processors?.includes(id);
+        const isIdle =
+          currentEvent?.idleProcessors?.includes(id) ||
+          (currentEvent?.arraySnapshot &&
+            id >= currentEvent.arraySnapshot.length);
+
+        let border = "#3f3f46"; // default zinc-700
         let backColor = "#09090b";
         let fontColor = "#d4d4d8";
 
-        if (isVisited) {
-          border = "#a78bfa";
-          backColor = "#a78bfa10";
-          fontColor = "#c084fc";
+        const desc = currentEvent?.description?.toLowerCase() || "";
+        const isInitialStep =
+          desc.includes("initialize") || currentEvent?.step === 0;
+        const isLocalComplete =
+          desc.includes("local reduction complete") ||
+          desc.includes("local chunk reduction complete") ||
+          desc.includes("local chunk reductions complete") ||
+          desc.includes("local scans complete");
+        const isAlgorithmComplete =
+          desc.includes("complete") && !desc.includes("local");
+        const isChunkPartitionStep =
+          !isInitialStep &&
+          !isLocalComplete &&
+          !isAlgorithmComplete &&
+          (Boolean(
+            currentEvent?.blockRanges && currentEvent.blockRanges.length > 0,
+          ) ||
+            desc.includes("partitioned") ||
+            desc.includes("local"));
+        const isPrefixSum = algorithmId === "parallel-prefix-sum";
+        const isReduction = algorithmId === "parallel-reduction";
+
+        const hasChunk =
+          (currentEvent?.pChunks?.[id] &&
+            currentEvent.pChunks[id].length > 0) ||
+          (currentEvent?.blockRanges?.[id] &&
+            currentEvent.blockRanges[id][0] < pData.length);
+
+        if (isIdle) {
+          border = "#18181b"; // zinc 900
+          backColor = "#09090b";
+          fontColor = "#3f3f46"; // dimmed
+        } else if (isLocalComplete) {
+          border = "#10b981";
+          backColor = "#10b98120";
+          fontColor = "#34d399";
+        } else if (isAlgorithmComplete) {
+          if (isPrefixSum) {
+            border = "#10b981"; // Emerald green for parallel prefix sum complete
+            backColor = "#10b98120";
+            fontColor = "#34d399";
+          } else if (isReduction) {
+            if (id === 0) {
+              border = "#10b981"; // Emerald green for P0 parallel reduction complete
+              backColor = "#10b98120";
+              fontColor = "#34d399";
+            } else {
+              border = "#18181b";
+              backColor = "#09090b";
+              fontColor = "#3f3f46";
+            }
+          }
+        } else if (isChunkPartitionStep && hasChunk) {
+          border = "#38bdf8"; // cyan 400 (Blue for chunk partition step)
+          backColor = "#0284c720";
+          fontColor = "#38bdf8";
+        } else if (isActive || isReceiver) {
+          border = "#fbbf24"; // amber 400
+          backColor = "#fbbf2410";
+          fontColor = "#fbbf24";
+        } else if (isSender) {
+          border = "#38bdf8"; // cyan 400
+          backColor = "#0284c720";
+          fontColor = "#38bdf8";
+        } else if (isIdle) {
+          border = "#18181b"; // zinc 900
+          backColor = "#09090b";
+          fontColor = "#3f3f46"; // dimmed
         }
 
         ctx.fillStyle = backColor;
         ctx.beginPath();
-        ctx.roundRect(x - 26, y - 22, 52, 44, 6);
+        ctx.roundRect(
+          x - nodeW / 2,
+          y - nodeH / 2,
+          nodeW,
+          nodeH,
+          P <= 4 ? 8 : 6,
+        );
         ctx.fill();
 
         ctx.strokeStyle = border;
-        ctx.lineWidth = isVisited ? 3 : 1.5;
+        if (isIdle) {
+          ctx.setLineDash([3, 3]);
+        }
+        ctx.lineWidth =
+          isActive ||
+          isSender ||
+          isReceiver ||
+          (isChunkPartitionStep && hasChunk)
+            ? 2.5
+            : 1.5;
         ctx.stroke();
+        ctx.setLineDash([]); // reset
 
         // Node ID
-        ctx.fillStyle = "#a1a1aa"; // Brighter gray node ID
-        ctx.font = "8px var(--font-mono, monospace)";
+        ctx.fillStyle = isIdle ? "#27272a" : isSender ? "#38bdf8" : "#71717a";
+        ctx.font =
+          P <= 4
+            ? "bold 10px var(--font-mono, monospace)"
+            : "bold 8px var(--font-mono, monospace)";
         ctx.textAlign = "center";
-        ctx.fillText(`P(${r},${c})`, x, y - 8);
+        ctx.fillText(`P${id}`, x, y - (P <= 4 ? 11 : 8));
 
-        // Value
+        // Value or Chunk display
+        const chunkItems =
+          (isChunkPartitionStep || isInitialStep) &&
+          !isLocalComplete &&
+          !isAlgorithmComplete
+            ? currentEvent?.pChunks?.[id]
+            : undefined;
+        let valStr = "";
+        if (isIdle) {
+          valStr = "0";
+        } else if (Array.isArray(chunkItems) && chunkItems.length > 0) {
+          valStr = chunkItems.join(", ");
+        } else {
+          valStr = val !== undefined ? String(val) : "0";
+        }
+
         ctx.fillStyle = fontColor;
-        ctx.font = "bold 13px var(--font-sans, sans-serif)";
-        ctx.fillText(String(val), x, y + 10);
+        ctx.font =
+          valStr.length > 5
+            ? "bold 10px var(--font-mono, monospace)"
+            : P <= 4
+              ? "bold 15px var(--font-sans, sans-serif)"
+              : "bold 13px var(--font-sans, sans-serif)";
+        ctx.fillText(valStr, x, y + (P <= 4 ? 12 : 10));
         ctx.textAlign = "left";
       }
+    }
+
+    // Draw communication round arrows over the grid layout
+    if (currentEvent?.communications) {
+      currentEvent.communications.forEach((comm: any) => {
+        const rFrom = Math.floor(comm.fromP / gridCols);
+        const cFrom = comm.fromP % gridCols;
+        const xFrom = xStart + cFrom * spacingX;
+        const yFrom = yStart + rFrom * spacingY;
+
+        const rTo = Math.floor(comm.toP / gridCols);
+        const cTo = comm.toP % gridCols;
+        const xTo = xStart + cTo * spacingX;
+        const yTo = yStart + rTo * spacingY;
+
+        const angle = Math.atan2(yTo - yFrom, xTo - xFrom);
+        const startX = xFrom + 22 * Math.cos(angle);
+        const startY = yFrom + 18 * Math.sin(angle);
+        const endX = xTo - 22 * Math.cos(angle);
+        const endY = yTo - 18 * Math.sin(angle);
+
+        drawArrow(ctx, startX, startY, endX, endY, "#38bdf8", comm.label);
+      });
     }
   };
 
@@ -692,9 +1382,10 @@ export function CanvasVisualizer({
     w: number,
     h: number,
   ) => {
-    const data = ((currentEvent?.arraySnapshot || inputData) as number[]) || [];
+    const pData =
+      currentEvent?.pValues || currentEvent?.arraySnapshot || inputData || [];
     const isBitonic = algorithmId === "bitonic-sort";
-    const N = isBitonic ? 16 : data.length || 8;
+    const N = isBitonic || topology === "4d" ? 16 : 8;
 
     ctx.font = "11px var(--font-mono, monospace)";
     ctx.fillStyle = "#52525b";
@@ -787,8 +1478,7 @@ export function CanvasVisualizer({
             currentEvent.indices?.includes(v));
 
       ctx.beginPath();
-      const isCross =
-        isBitonic && ((u < 8 && v === u + 8) || (v < 8 && u === v + 8));
+      const isCross = (u < 8 && v === u + 8) || (v < 8 && u === v + 8);
 
       if (isCross) {
         const leftNode = u < v ? u : v;
@@ -831,19 +1521,92 @@ export function CanvasVisualizer({
     // Draw node modules
     for (let idx = 0; idx < N; idx++) {
       const pos = getHypercubeNodeCoords(idx, N, w, h);
-      const hasValue = idx < data.length;
-      const val = hasValue ? data[idx] : undefined;
-      const isVisited = hasValue && currentEvent?.indices?.includes(idx);
+      const hasValue = idx < pData.length;
+      const val = hasValue ? pData[idx] : undefined;
 
+      const isActive = currentEvent?.processors?.includes(idx);
+      const isSender =
+        currentEvent?.sendingProcessors?.includes(idx) ||
+        (currentEvent?.communications?.some((c: any) => c.fromP === idx) &&
+          !isActive);
+      const isReceiver =
+        isActive ||
+        currentEvent?.communications?.some((c: any) => c.toP === idx);
+      const isIdle =
+        currentEvent?.idleProcessors?.includes(idx) ||
+        (currentEvent?.arraySnapshot &&
+          idx >= currentEvent.arraySnapshot.length);
+
+      const isVisited = hasValue && currentEvent?.indices?.includes(idx);
       const isCompare = currentEvent?.type === "COMPARE" && isVisited;
       const isSwap = currentEvent?.type === "SWAP" && isVisited;
 
-      let border = hasValue ? "#52525b" : "#27272a"; // Brighter gray node border vs dashed/dimmed border
+      let border = hasValue ? "#52525b" : "#27272a";
       let backColor = "#09090b";
       let fontColor = hasValue ? "#d4d4d8" : "#3f3f46";
       let shadowColor = "transparent";
 
-      if (isSwap) {
+      const desc = currentEvent?.description?.toLowerCase() || "";
+      const isInitialStep =
+        desc.includes("initialize") || currentEvent?.step === 0;
+      const isLocalComplete =
+        desc.includes("local reduction complete") ||
+        desc.includes("local chunk reduction complete") ||
+        desc.includes("local chunk reductions complete") ||
+        desc.includes("local scans complete");
+      const isAlgorithmComplete =
+        desc.includes("complete") && !desc.includes("local");
+      const isPrefixSum = algorithmId === "parallel-prefix-sum";
+      const isReduction = algorithmId === "parallel-reduction";
+
+      const isChunkPartitionStep =
+        !isInitialStep &&
+        !isLocalComplete &&
+        !isAlgorithmComplete &&
+        (Boolean(
+          currentEvent?.blockRanges && currentEvent.blockRanges.length > 0,
+        ) ||
+          desc.includes("partitioned") ||
+          desc.includes("local"));
+      const hasChunk =
+        (currentEvent?.pChunks?.[idx] &&
+          currentEvent.pChunks[idx].length > 0) ||
+        (currentEvent?.blockRanges?.[idx] &&
+          currentEvent.blockRanges[idx][0] < pData.length);
+
+      if (isIdle) {
+        border = "#18181b"; // Zinc 900
+        backColor = "#09090b";
+        fontColor = "#3f3f46"; // dimmed
+      } else if (isLocalComplete) {
+        border = "#10b981"; // Emerald green for all processors when local chunk reduction is complete
+        backColor = "#10b98120";
+        fontColor = "#34d399";
+        shadowColor = "#10b98140";
+      } else if (isAlgorithmComplete) {
+        if (isPrefixSum) {
+          border = "#10b981"; // Emerald green for parallel prefix sum complete
+          backColor = "#10b98120";
+          fontColor = "#34d399";
+          shadowColor = "#10b98140";
+        } else if (isReduction) {
+          if (idx === 0) {
+            border = "#10b981"; // Emerald green for P0 in parallel reduction complete
+            backColor = "#10b98120";
+            fontColor = "#34d399";
+            shadowColor = "#10b98140";
+          } else {
+            border = "#18181b";
+            backColor = "#09090b";
+            fontColor = "#3f3f46";
+          }
+        }
+      } else if (isChunkPartitionStep && hasChunk) {
+        border = "#38bdf8"; // Cyan 400 (Blue for chunk partition step)
+        backColor = "#0284c720";
+        fontColor = "#38bdf8";
+        shadowColor = "#0284c740";
+      } else if (isSwap) {
         border = "#f43f5e"; // Rose
         backColor = "#f43f5e15";
         fontColor = "#fda4af";
@@ -853,10 +1616,20 @@ export function CanvasVisualizer({
         backColor = "#f59e0b15";
         fontColor = "#fbbf24";
         shadowColor = "#f59e0b30";
-      } else if (isVisited) {
-        border = "#fbbf24";
-        backColor = "#f59e0b10";
+      } else if (isActive || isReceiver) {
+        border = "#fbbf24"; // Amber 400 (Yellow for updating accumulator)
+        backColor = "#fbbf2410";
         fontColor = "#fbbf24";
+        shadowColor = "#fbbf2430";
+      } else if (isSender) {
+        border = "#38bdf8"; // Cyan 400 (Blue for sender)
+        backColor = "#0284c720";
+        fontColor = "#38bdf8";
+        shadowColor = "#0284c740";
+      } else if (isIdle) {
+        border = "#18181b"; // Zinc 900
+        backColor = "#09090b";
+        fontColor = "#3f3f46"; // dimmed
       }
 
       if (shadowColor !== "transparent") {
@@ -870,30 +1643,120 @@ export function CanvasVisualizer({
       ctx.shadowBlur = 0; // reset
 
       ctx.strokeStyle = border;
-      if (!hasValue) {
-        ctx.setLineDash([3, 3]); // dashed style for empty tesseract nodes
+      if (isIdle || !hasValue) {
+        ctx.setLineDash([3, 3]); // dashed style for empty or idle hypercube nodes
       }
-      ctx.lineWidth = isVisited ? 3 : 1.5;
+      ctx.lineWidth =
+        isActive ||
+        isSender ||
+        isReceiver ||
+        isVisited ||
+        (isChunkPartitionStep && hasChunk) ||
+        isLocalComplete ||
+        isAlgorithmComplete
+          ? 2.5
+          : 1.5;
       ctx.stroke();
       ctx.setLineDash([]); // reset
 
       // Node core address (always 4 bits representation as requested!)
-      ctx.fillStyle = hasValue ? "#a1a1aa" : "#52525b"; // Brighter gray address label vs dimmed
+      ctx.fillStyle = isIdle
+        ? "#27272a"
+        : isSender
+          ? "#38bdf8"
+          : hasValue
+            ? "#a1a1aa"
+            : "#52525b";
       ctx.font = "bold 7px var(--font-mono, monospace)";
       ctx.textAlign = "center";
       ctx.fillText(
         idx.toString(2).padStart(4, "0"),
         pos.x,
-        pos.y - (hasValue ? 4 : 0),
+        pos.y - (hasValue && !isIdle ? 4 : 0),
       );
 
-      // Node value
-      if (hasValue && val !== undefined) {
+      // Node value or chunk display
+      const chunkItems =
+        (isChunkPartitionStep || isInitialStep) &&
+        !isLocalComplete &&
+        !isAlgorithmComplete
+          ? currentEvent?.pChunks?.[idx]
+          : undefined;
+      let valStr = "";
+      if (Array.isArray(chunkItems) && chunkItems.length > 0) {
+        valStr = chunkItems.join(", ");
+      } else if (hasValue && val !== undefined) {
+        valStr = String(val);
+      }
+
+      if (!isIdle && valStr !== "") {
         ctx.fillStyle = fontColor;
-        ctx.font = "bold 11px var(--font-sans, sans-serif)";
-        ctx.fillText(String(val), pos.x, pos.y + 6);
+        ctx.font =
+          valStr.length > 3
+            ? "bold 9px var(--font-mono, monospace)"
+            : "bold 11px var(--font-sans, sans-serif)";
+        ctx.fillText(valStr, pos.x, pos.y + 6);
       }
     }
+
+    // Draw communication round arrows over the hypercube layout
+    if (currentEvent?.communications) {
+      currentEvent.communications.forEach((comm: any) => {
+        const u = comm.fromP;
+        const v = comm.toP;
+        const posU = getHypercubeNodeCoords(u, N, w, h);
+        const posV = getHypercubeNodeCoords(v, N, w, h);
+
+        const isCross =
+          N === 16 && ((u < 8 && v === u + 8) || (v < 8 && u === v + 8));
+
+        if (isCross) {
+          const leftNode = u < v ? u : v;
+          const isTop = [0, 2, 4, 6].includes(leftNode);
+          let curveOffset = 40;
+          if (leftNode === 0 || leftNode === 1) curveOffset = 40;
+          else if (leftNode === 2 || leftNode === 3) curveOffset = 25;
+          else if (leftNode === 4 || leftNode === 5) curveOffset = 55;
+          else if (leftNode === 6 || leftNode === 7) curveOffset = 70;
+
+          const leftPos = u < v ? posU : posV;
+          const rightPos = u < v ? posV : posU;
+          const midX = (leftPos.x + rightPos.x) / 2;
+          const midY = (leftPos.y + rightPos.y) / 2;
+          const cpX = midX;
+          const cpY = isTop ? midY - curveOffset : midY + curveOffset;
+
+          drawCurvedArrow(
+            ctx,
+            posU.x,
+            posU.y,
+            posV.x,
+            posV.y,
+            cpX,
+            cpY,
+            "#38bdf8",
+            comm.label || "ADD",
+          );
+        } else {
+          const angle = Math.atan2(posV.y - posU.y, posV.x - posU.x);
+          const startX = posU.x + 18 * Math.cos(angle);
+          const startY = posU.y + 18 * Math.sin(angle);
+          const endX = posV.x - 18 * Math.cos(angle);
+          const endY = posV.y - 18 * Math.sin(angle);
+
+          drawArrow(
+            ctx,
+            startX,
+            startY,
+            endX,
+            endY,
+            "#38bdf8",
+            comm.label || "ADD",
+          );
+        }
+      });
+    }
+
     ctx.textAlign = "left";
   };
 
@@ -2332,6 +3195,54 @@ export function CanvasVisualizer({
 
       // PRAM or interconnection packet generation
       if (
+        Array.isArray(currentEvent.communications) &&
+        currentEvent.communications.length > 0
+      ) {
+        const activeTop: string =
+          topology ||
+          (model === "Mesh" ? "2d" : model === "Hypercube" ? "3d" : "1d");
+        const pCount = currentEvent.pValues?.length || processorCount;
+        currentEvent.communications.forEach((comm: any) => {
+          const u = comm.fromP ?? comm.from;
+          const v = comm.toP ?? comm.to;
+          if (typeof u === "number" && typeof v === "number") {
+            const coords = getPacketEndpoints(
+              u,
+              v,
+              activeTop,
+              pCount,
+              width,
+              height,
+              inputData,
+            );
+            if (coords) {
+              let cpX: number | undefined;
+              let cpY: number | undefined;
+              if (activeTop === "1d" || activeTop === "PRAM") {
+                cpX = (coords.fromX + coords.toX) / 2;
+                const dist = Math.abs(coords.fromX - coords.toX);
+                const archH = Math.min(55, 20 + dist * 0.2);
+                const curvePeakY = coords.fromY - 18 - archH / 2;
+                cpY = curvePeakY - 3;
+              }
+
+              newPackets.push({
+                fromX: coords.fromX,
+                fromY: coords.fromY,
+                toX: coords.toX,
+                toY: coords.toY,
+                progress: 0,
+                label: String(comm.value ?? comm.label ?? "ADD"),
+                color: "#38bdf8",
+                cpX,
+                cpY,
+              });
+            }
+          }
+        });
+      }
+
+      if (
         currentEvent.type === "SEND_MESSAGE" &&
         typeof currentEvent.from === "number" &&
         typeof currentEvent.to === "number"
@@ -2395,37 +3306,41 @@ export function CanvasVisualizer({
             cpY,
           });
         }
-      } else if (
-        (currentEvent.type === "READ" || currentEvent.type === "WRITE") &&
-        currentEvent.processors &&
-        currentEvent.indices
+      }
+
+      if (
+        (topology === "1d" || !topology) &&
+        currentEvent.type === "READ" &&
+        Array.isArray(currentEvent.processors) &&
+        Array.isArray(currentEvent.indices) &&
+        currentEvent.processors.length > 0
       ) {
-        // Multi-channel reading/writing packet from processors to shared memory cells
+        const data =
+          ((currentEvent.arraySnapshot || inputData) as number[]) || [];
+        const size = data.length || 8;
+        const pWidth = width - 160;
+        const pSpacing = pWidth / (processorCount - 1 || 1);
+        const pY = 80;
+        const mWidth = width - 160;
+        const cellWidth = mWidth / size;
+        const memY = height - 100;
+
         currentEvent.processors.forEach((pId, idx) => {
-          const targetIdx = currentEvent.indices?.[idx];
-          if (typeof targetIdx === "number") {
-            const coords = getPRAMEndpoints(
-              pId,
-              targetIdx,
-              processorCount,
-              inputData?.length || 8,
-              width,
-              height,
-            );
-            if (coords) {
-              const isRead = currentEvent.type === "READ";
-              newPackets.push({
-                fromX: isRead ? coords.memX : coords.pX,
-                fromY: isRead ? coords.memY : coords.pY,
-                toX: isRead ? coords.pX : coords.memX,
-                toY: isRead ? coords.pY : coords.memY,
-                progress: 0,
-                label: isRead
-                  ? "READ"
-                  : String(currentEvent.values?.[idx] || "DATA"),
-                color: isRead ? "#22d3ee" : "#10b981", // cyan vs emerald
-              });
-            }
+          const cellIdx =
+            currentEvent.indices![idx] ?? currentEvent.indices![0];
+          if (typeof cellIdx === "number" && cellIdx >= 0 && cellIdx < size) {
+            const pX = 80 + pId * pSpacing;
+            const cellX = 80 + cellIdx * cellWidth + cellWidth / 2;
+
+            newPackets.push({
+              fromX: cellX,
+              fromY: memY,
+              toX: pX,
+              toY: pY + 18,
+              progress: 0,
+              label: "READ",
+              color: "#06b6d4",
+            });
           }
         });
       }
@@ -2440,7 +3355,7 @@ export function CanvasVisualizer({
 
       return () => clearTimeout(timer);
     }
-  }, [currentEvent, dimensions, model, processorCount, inputData]);
+  }, [currentEvent, dimensions, model, processorCount, inputData, topology]);
 
   // Update packet animations (Moved down to avoid hoisting errors)
   useEffect(() => {
@@ -2523,6 +3438,17 @@ export function CanvasVisualizer({
       renderRadixSortLayout(ctx, width, height);
     } else if (algorithmId === "bucket-sort") {
       renderBucketSortLayout(ctx, width, height);
+    } else if (
+      algorithmId === "parallel-reduction" ||
+      algorithmId === "parallel-prefix-sum"
+    ) {
+      if (topology === "2d") {
+        renderMeshLayout(ctx, width, height);
+      } else if (topology === "3d" || topology === "4d") {
+        renderHypercubeLayout(ctx, width, height);
+      } else {
+        renderPRAMLayout(ctx, width, height);
+      }
     } else {
       switch (model) {
         case "RAM":

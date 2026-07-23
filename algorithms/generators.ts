@@ -44,6 +44,7 @@ export function generateEvents(
   id: AlgorithmId,
   input: any,
   processorCount: number = 4,
+  topology: string = "1d",
 ): SimulationEvent[] {
   const events: SimulationEvent[] = [];
   let stepCounter = 0;
@@ -1564,210 +1565,1006 @@ export function generateEvents(
 
     // --- PARALLEL ALGORITHMS ---
     case "parallel-reduction": {
-      // In-place parallel tree-based summation
       const arr = [...input] as number[];
-      const n = arr.length;
+      const N = arr.length;
+
+      // Determine logical processor count P based on topology
+      let P = processorCount;
+      if (topology === "3d") P = 8;
+      else if (topology === "4d") P = 16;
+      else if (topology === "2d") {
+        if (![2, 4, 8, 16].includes(P)) {
+          P = P <= 2 ? 2 : P <= 4 ? 4 : P <= 8 ? 8 : 16;
+        }
+      }
+
+      // Initialize processor values
+      let pValues = Array(P).fill(0);
+      let pChunks: number[][] = Array.from({ length: P }, () => []);
+
+      if (N <= P) {
+        for (let p = 0; p < P; p++) {
+          pValues[p] = p < N ? arr[p] : 0;
+          if (p < N) pChunks[p] = [arr[p]];
+        }
+      } else {
+        const blockSize = Math.ceil(N / P);
+        for (let p = 0; p < P; p++) {
+          const start = p * blockSize;
+          const end = Math.min(N - 1, (p + 1) * blockSize - 1);
+          pValues[p] = start < N ? arr[start] : 0;
+          if (start < N) pChunks[p] = arr.slice(start, end + 1);
+        }
+      }
+
+      const initialIdleProcs =
+        N < P ? Array.from({ length: P - N }, (_, idx) => N + idx) : [];
+
       emit(
         "HIGHLIGHT",
         0,
-        `Start Parallel Reduction (Sum) on ${n} elements using ${processorCount} processors. Array: ` +
-          arr.join(", "),
+        `Initialize Parallel Reduction. Input Size N = ${N}, Processors P = ${P} (${topology.toUpperCase()} Topology).`,
         {
           arraySnapshot: [...arr],
+          pValues: [...pValues],
+          pChunks: pChunks.map((c) => [...c]),
+          idleProcessors: initialIdleProcs,
         },
       );
 
-      const depth = Math.ceil(Math.log2(n));
-
-      for (let d = 1; d <= depth; d++) {
-        const stepSize = Math.pow(2, d);
-        const halfStep = Math.pow(2, d - 1);
-
-        const processorsActive: number[] = [];
-        const indicesInvolved: number[] = [];
-        const pairs: { targetIdx: number; sourceIdx: number; pId: number }[] =
-          [];
-
-        let activeIdx = 0;
-        for (let targetIdx = 0; targetIdx < n; targetIdx += stepSize) {
-          const sourceIdx = targetIdx + halfStep;
-          if (sourceIdx < n) {
-            const pId = activeIdx % processorCount;
-            processorsActive.push(pId);
-            indicesInvolved.push(targetIdx, sourceIdx);
-            pairs.push({ targetIdx, sourceIdx, pId });
-            activeIdx++;
-          }
+      // Part 1: Local Computation / Chunking (if N > P)
+      if (N > P) {
+        const blockSize = Math.ceil(N / P);
+        const blockRanges: [number, number][] = [];
+        for (let p = 0; p < P; p++) {
+          const start = p * blockSize;
+          const end = Math.min(N - 1, (p + 1) * blockSize - 1);
+          blockRanges.push([start, end]);
         }
 
         emit(
           "HIGHLIGHT",
           1,
-          `Level ${d}: Concurrently activating ${pairs.length} tree lanes`,
+          `Input size N (${N}) > Processors P (${P}). Partitioned into ${P} chunks. Processors parallel reduction on local chunks.`,
           {
-            processors: processorsActive,
-            indices: indicesInvolved,
             arraySnapshot: [...arr],
+            pValues: [...pValues],
+            pChunks: pChunks.map((c) => [...c]),
+            blockRanges,
           },
         );
 
-        // Simulating the addition
-        for (const pair of pairs) {
-          const { targetIdx, sourceIdx, pId } = pair;
+        if (topology === "1d") {
+          // Compute local sums step by step for 1D topology (with memory visualizer)
+          const tempLocalAcc = pChunks.map((c) => (c.length > 0 ? c[0] : 0));
+          for (let step = 1; step < blockSize; step++) {
+            const activeProcs: number[] = [];
+            const activeIndices: number[] = [];
+
+            for (let p = 0; p < P; p++) {
+              const [start, end] = blockRanges[p];
+              const targetIdx = start + step;
+              if (targetIdx <= end) {
+                activeProcs.push(p);
+                activeIndices.push(targetIdx);
+                tempLocalAcc[p] += arr[targetIdx];
+              }
+            }
+
+            if (activeProcs.length > 0) {
+              const procReadDetails = activeProcs
+                .map((p) => `P${p} reads index ${blockRanges[p][0] + step}`)
+                .join(", ");
+              emit(
+                "READ",
+                2,
+                `Local chunk reduction (Step ${step}/${blockSize - 1}): Each processor reads next element in its assigned chunk (${procReadDetails}) and adds it to its local accumulator.`,
+                {
+                  processors: activeProcs,
+                  indices: activeIndices,
+                  arraySnapshot: [...arr],
+                  pValues: [...tempLocalAcc],
+                },
+              );
+            }
+          }
+
+          // Copy final chunk sums to pValues
+          for (let p = 0; p < P; p++) {
+            const [start, end] = blockRanges[p];
+            if (start < N) {
+              let sum = 0;
+              for (let i = start; i <= end; i++) sum += arr[i];
+              pValues[p] = sum;
+            } else {
+              pValues[p] = 0;
+            }
+          }
 
           emit(
-            "SEND_MESSAGE",
+            "BARRIER",
             3,
-            `Processor P_${pId} reads values at index ${targetIdx} (${arr[targetIdx]}) and index ${sourceIdx} (${arr[sourceIdx]})`,
+            `Local reduction complete across all PEs. Partial sums in processor registers: [${pValues.join(", ")}].`,
             {
-              processors: [pId],
-              indices: [targetIdx, sourceIdx],
-              from: sourceIdx,
-              to: targetIdx,
-              msg: arr[sourceIdx],
               arraySnapshot: [...arr],
+              pValues: [...pValues],
             },
           );
-
-          arr[targetIdx] += arr[sourceIdx];
+        } else {
+          // Single-step chunk reduction for 2D Mesh and 3D/4D Hypercube topology
+          const activeProcs: number[] = [];
+          for (let p = 0; p < P; p++) {
+            const [start, end] = blockRanges[p];
+            if (start < N) {
+              let sum = 0;
+              for (let i = start; i <= end; i++) sum += arr[i];
+              pValues[p] = sum;
+              activeProcs.push(p);
+            } else {
+              pValues[p] = 0;
+            }
+          }
 
           emit(
-            "WRITE",
-            3,
-            `Processor P_${pId} stores the sum ${arr[targetIdx]} at index ${targetIdx}`,
+            "READ",
+            2,
+            `Local chunk reduction complete: Partitioned N=${N} input into ${P} chunks. Processors compute local chunk sums in parallel. Partial sums in registers: [${pValues.join(", ")}].`,
             {
-              processors: [pId],
-              indices: [targetIdx],
-              values: [...arr],
+              processors: activeProcs,
               arraySnapshot: [...arr],
+              pValues: [...pValues],
+              blockRanges,
             },
           );
         }
+      } else {
+        // N <= P: Elements map directly to processors. Idle processors get 0.
+        for (let p = 0; p < P; p++) {
+          pValues[p] = p < N ? arr[p] : 0;
+        }
 
-        emit(
-          "BARRIER",
-          5,
-          `Barrier hit: Synchronizing all processors at the end of Level ${d}. Sums merged.`,
-          {
-            indices: Array.from({ length: n }, (_, idx) => idx),
-            arraySnapshot: [...arr],
-          },
+        const idleProcs = Array.from({ length: P - N }, (_, idx) => N + idx);
+        const activeProcs = Array.from(
+          { length: Math.min(N, P) },
+          (_, idx) => idx,
         );
-      }
-
-      emit("HIGHLIGHT", 7, `Reduction finished. Total Sum: ${arr[0]}`, {
-        indices: [0],
-        arraySnapshot: [...arr],
-      });
-      break;
-    }
-
-    case "parallel-prefix-sum": {
-      // Hillis-Steele prefix scan
-      const arr = [...input] as number[];
-      const n = arr.length;
-      emit(
-        "HIGHLIGHT",
-        0,
-        `Start Hillis-Steele Parallel Prefix Sum on ${n} items using ${processorCount} processors. Array: ` +
-          arr.join(", "),
-        {
-          arraySnapshot: [...arr],
-        },
-      );
-
-      const temp = [...arr];
-      const steps = Math.ceil(Math.log2(n));
-
-      for (let d = 1; d <= steps; d++) {
-        const offset = Math.pow(2, d - 1);
-        const activeProcessors: number[] = [];
-        const activeIndices: number[] = [];
-
-        for (let i = 0; i < n; i++) {
-          activeProcessors.push(i % processorCount);
-          activeIndices.push(i);
-        }
 
         emit(
           "HIGHLIGHT",
           2,
-          `Step ${d}: offset is ${offset}. Processor P_i scans index i and i - offset.`,
+          `Direct mapping: PEs 0..${activeProcs.length - 1} load input elements. Remaining PEs are IDLE.`,
           {
-            processors: activeProcessors,
-            indices: activeIndices,
+            processors: activeProcs,
+            idleProcessors: idleProcs,
             arraySnapshot: [...arr],
-          },
-        );
-
-        // Compute step
-        for (let i = 0; i < n; i++) {
-          const pId = i % processorCount;
-          if (i >= offset) {
-            temp[i] = arr[i] + arr[i - offset];
-            emit(
-              "READ",
-              5,
-              `Processor P_${pId} reads A[${i}] (${arr[i]}) and A[${i - offset}] (${arr[i - offset]})`,
-              {
-                processors: [pId],
-                indices: [i, i - offset],
-                arraySnapshot: [...arr],
-              },
-            );
-            emit(
-              "WRITE",
-              5,
-              `Processor P_${pId} writes sum ${temp[i]} to temp[${i}]`,
-              {
-                processors: [pId],
-                indices: [i],
-                arraySnapshot: [...temp],
-              },
-            );
-          } else {
-            temp[i] = arr[i];
-            emit(
-              "WRITE",
-              7,
-              `Processor P_${pId} copies A[${i}] (${arr[i]}) to temp[${i}]`,
-              {
-                processors: [pId],
-                indices: [i],
-                arraySnapshot: [...temp],
-              },
-            );
-          }
-        }
-
-        // Barrier sync copy back
-        for (let i = 0; i < n; i++) {
-          arr[i] = temp[i];
-        }
-
-        emit(
-          "BARRIER",
-          10,
-          `Barrier hit: Copying temp back to active list and synchronizing. Current sums: ` +
-            arr.join(", "),
-          {
-            indices: Array.from({ length: n }, (_, idx) => idx),
-            values: [...arr],
-            arraySnapshot: [...arr],
+            pValues: [...pValues],
           },
         );
       }
 
+      // Part 2: Global Topology-Aware Reduction
+      if (topology === "1d") {
+        const steps = Math.ceil(Math.log2(P));
+        for (let s = 1; s <= steps; s++) {
+          const stride = Math.pow(2, s);
+          const halfStride = Math.pow(2, s - 1);
+          const activeProcs: number[] = [];
+          const comms: any[] = [];
+
+          for (let p = 0; p < P; p += stride) {
+            const q = p + halfStride;
+            if (q < P) {
+              activeProcs.push(p);
+              comms.push({ fromP: q, toP: p, label: "ADD", value: pValues[q] });
+            }
+          }
+
+          if (activeProcs.length > 0) {
+            emit(
+              "HIGHLIGHT",
+              5,
+              `1D reduction stage ${s}: Processors concurrently communicate with stride ${halfStride}`,
+              {
+                processors: activeProcs,
+                arraySnapshot: [...arr],
+                pValues: [...pValues],
+              },
+            );
+
+            emit(
+              "SEND_MESSAGE",
+              6,
+              `Active processors receive values from neighbor P_j (distance ${halfStride})`,
+              {
+                processors: activeProcs,
+                arraySnapshot: [...arr],
+                pValues: [...pValues],
+                communications: comms,
+              },
+            );
+
+            comms.forEach((c) => {
+              pValues[c.toP] += pValues[c.fromP];
+            });
+
+            emit(
+              "WRITE",
+              7,
+              `Processors compute sum and update local registers.`,
+              {
+                processors: activeProcs,
+                arraySnapshot: [...arr],
+                pValues: [...pValues],
+              },
+            );
+          }
+        }
+      } else if (topology === "2d") {
+        let cols = 4;
+        let rows = 2;
+        if (P === 2) {
+          cols = 2;
+          rows = 1;
+        } else if (P === 4) {
+          cols = 2;
+          rows = 2;
+        } else if (P === 8) {
+          cols = 4;
+          rows = 2;
+        } else if (P === 16) {
+          cols = 4;
+          rows = 4;
+        }
+
+        // Row-wise reduction
+        const rowSteps = Math.ceil(Math.log2(cols));
+        for (let s = 1; s <= rowSteps; s++) {
+          const stride = Math.pow(2, s);
+          const halfStride = Math.pow(2, s - 1);
+          const activeProcs: number[] = [];
+          const comms: any[] = [];
+
+          for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c += stride) {
+              const qCol = c + halfStride;
+              if (qCol < cols) {
+                const targetP = r * cols + c;
+                const sourceP = r * cols + qCol;
+                activeProcs.push(targetP);
+                comms.push({
+                  fromP: sourceP,
+                  toP: targetP,
+                  label: "ADD",
+                  value: pValues[sourceP],
+                });
+              }
+            }
+          }
+
+          if (activeProcs.length > 0) {
+            emit(
+              "SEND_MESSAGE",
+              6,
+              `Mesh Stage 1 Row Reduction (step size ${halfStride}): Rows concurrently reduce values towards column 0.`,
+              {
+                processors: activeProcs,
+                arraySnapshot: [...arr],
+                pValues: [...pValues],
+                communications: comms,
+              },
+            );
+
+            comms.forEach((c) => {
+              pValues[c.toP] += pValues[c.fromP];
+            });
+
+            emit("WRITE", 7, `Updated row-wise partial sums in column 0.`, {
+              processors: activeProcs,
+              arraySnapshot: [...arr],
+              pValues: [...pValues],
+            });
+          }
+        }
+
+        const colSteps = Math.ceil(Math.log2(rows));
+        for (let s = 1; s <= colSteps; s++) {
+          const stride = Math.pow(2, s);
+          const halfStride = Math.pow(2, s - 1);
+          const activeProcs: number[] = [];
+          const comms: any[] = [];
+
+          for (let r = 0; r < rows; r += stride) {
+            const qRow = r + halfStride;
+            if (qRow < rows) {
+              const targetP = r * cols;
+              const sourceP = qRow * cols;
+              activeProcs.push(targetP);
+              comms.push({
+                fromP: sourceP,
+                toP: targetP,
+                label: "ADD",
+                value: pValues[sourceP],
+              });
+            }
+          }
+
+          if (activeProcs.length > 0) {
+            emit(
+              "SEND_MESSAGE",
+              9,
+              `Mesh Stage 2 Column Reduction (step size ${halfStride}): Column 0 concurrently reduces row totals towards P(0,0).`,
+              {
+                processors: activeProcs,
+                arraySnapshot: [...arr],
+                pValues: [...pValues],
+                communications: comms,
+              },
+            );
+
+            comms.forEach((c) => {
+              pValues[c.toP] += pValues[c.fromP];
+            });
+
+            emit("WRITE", 10, `Updated final sum at coordinate P(0,0).`, {
+              processors: activeProcs,
+              arraySnapshot: [...arr],
+              pValues: [...pValues],
+            });
+          }
+        }
+      } else {
+        const dims = topology === "4d" ? 4 : 3;
+
+        for (let d = 0; d < dims; d++) {
+          const activeProcs: number[] = [];
+          const comms: any[] = [];
+          const bitMask = 1 << d;
+
+          for (let p = 0; p < P; p++) {
+            const precedingMask = (1 << d) - 1;
+            if ((p & precedingMask) === 0 && (p & bitMask) === 0) {
+              const q = p | bitMask;
+              if (q < P) {
+                activeProcs.push(p);
+                comms.push({
+                  fromP: q,
+                  toP: p,
+                  label: "ADD",
+                  value: pValues[q],
+                });
+              }
+            }
+          }
+
+          if (activeProcs.length > 0) {
+            emit(
+              "SEND_MESSAGE",
+              6,
+              `Hypercube Dim ${d} reduction: Processors with bit ${d}=0 receive partial sums from dimensional neighbors with bit ${d}=1.`,
+              {
+                processors: activeProcs,
+                arraySnapshot: [...arr],
+                pValues: [...pValues],
+                communications: comms,
+              },
+            );
+
+            comms.forEach((c) => {
+              pValues[c.toP] += pValues[c.fromP];
+            });
+
+            emit(
+              "WRITE",
+              7,
+              `Dimension ${d} merged. Active nodes accumulated partial sums: [${pValues.join(", ")}].`,
+              {
+                processors: activeProcs,
+                arraySnapshot: [...arr],
+                pValues: [...pValues],
+              },
+            );
+          }
+        }
+      }
+
+      const totalSum = pValues[0];
+      arr[0] = totalSum;
+
       emit(
-        "HIGHLIGHT",
-        12,
-        `Parallel Prefix Sum completed successfully! Final values: ` +
-          arr.join(", "),
+        "WRITE",
+        11,
+        `Processor P_0 writes total sum (${totalSum}) to memory cell [0].`,
         {
-          indices: Array.from({ length: n }, (_, idx) => idx),
+          processors: [0],
+          indices: [0],
           arraySnapshot: [...arr],
+          pValues: [...pValues],
         },
       );
+
+      emit(
+        "WRITE",
+        12,
+        `Parallel Reduction sum complete! Total calculated sum: ${totalSum}.`,
+        {
+          indices: [0],
+          arraySnapshot: [...arr],
+          pValues: [...pValues],
+        },
+      );
+      break;
+    }
+
+    case "parallel-prefix-sum": {
+      const arr = [...input] as number[];
+      const N = arr.length;
+
+      let P = processorCount;
+      if (topology === "3d") P = 8;
+      else if (topology === "4d") P = 16;
+      else if (topology === "2d") {
+        if (![2, 4, 8, 16].includes(P)) {
+          P = P <= 2 ? 2 : P <= 4 ? 4 : P <= 8 ? 8 : 16;
+        }
+      }
+
+      let pValues = Array(P).fill(0);
+      let pChunks: number[][] = Array.from({ length: P }, () => []);
+
+      if (N <= P) {
+        for (let p = 0; p < P; p++) {
+          pValues[p] = p < N ? arr[p] : 0;
+          if (p < N) pChunks[p] = [arr[p]];
+        }
+      } else {
+        const blockSize = Math.ceil(N / P);
+        for (let p = 0; p < P; p++) {
+          const start = p * blockSize;
+          const end = Math.min(N - 1, (p + 1) * blockSize - 1);
+          pValues[p] = start < N ? arr[start] : 0;
+          if (start < N) pChunks[p] = arr.slice(start, end + 1);
+        }
+      }
+
+      const initialIdleProcs =
+        N < P ? Array.from({ length: P - N }, (_, idx) => N + idx) : [];
+
+      emit(
+        "HIGHLIGHT",
+        0,
+        `Initialize Parallel Prefix Sum. Input Size N = ${N}, Processors P = ${P} (${topology.toUpperCase()} Topology).`,
+        {
+          arraySnapshot: [...arr],
+          pValues: [...pValues],
+          pChunks: pChunks.map((c) => [...c]),
+          idleProcessors: initialIdleProcs,
+        },
+      );
+
+      let blockRanges: [number, number][] = [];
+      const hasChunking = N > P;
+
+      // Part 1: Local Prefix Sum on each chunk (if N > P)
+      if (hasChunking) {
+        const blockSize = Math.ceil(N / P);
+        for (let p = 0; p < P; p++) {
+          const start = p * blockSize;
+          const end = Math.min(N - 1, (p + 1) * blockSize - 1);
+          blockRanges.push([start, end]);
+        }
+
+        emit(
+          "HIGHLIGHT",
+          1,
+          `Input size N (${N}) > Processors P (${P}). Partitioned into ${P} chunks. Processors parallel local prefix scan on assigned chunks.`,
+          {
+            arraySnapshot: [...arr],
+            pValues: [...pValues],
+            pChunks: pChunks.map((c) => [...c]),
+            blockRanges,
+          },
+        );
+
+        if (topology === "1d") {
+          // Initialize registers with first element of each chunk
+          for (let p = 0; p < P; p++) {
+            const [start] = blockRanges[p];
+            pValues[p] = start < N ? arr[start] : 0;
+          }
+
+          for (let step = 1; step < blockSize; step++) {
+            const activeProcs: number[] = [];
+            const activeIndices: number[] = [];
+
+            for (let p = 0; p < P; p++) {
+              const [start, end] = blockRanges[p];
+              const targetIdx = start + step;
+              if (targetIdx <= end) {
+                activeProcs.push(p);
+                activeIndices.push(targetIdx);
+                pValues[p] += arr[targetIdx];
+              }
+            }
+
+            if (activeProcs.length > 0) {
+              const procReadDetails = activeProcs
+                .map((p) => `P${p} reads index ${blockRanges[p][0] + step}`)
+                .join(", ");
+              emit(
+                "READ",
+                2,
+                `Local chunk reduction (Step ${step}/${blockSize - 1}): Each processor reads next element in its assigned chunk (${procReadDetails}) and adds it to its local accumulator.`,
+                {
+                  processors: activeProcs,
+                  indices: activeIndices,
+                  arraySnapshot: [...arr],
+                  pValues: [...pValues],
+                },
+              );
+            }
+          }
+
+          emit(
+            "BARRIER",
+            3,
+            `Local chunk reductions complete. Each processor holds its block's total sum in register: [${pValues.join(", ")}].`,
+            {
+              arraySnapshot: [...arr],
+              pValues: [...pValues],
+            },
+          );
+        } else {
+          // Single-step chunk reduction for 2D Mesh and 3D/4D Hypercube topology
+          const activeProcs: number[] = [];
+          for (let p = 0; p < P; p++) {
+            const [start, end] = blockRanges[p];
+            if (start < N) {
+              let sum = 0;
+              for (let i = start; i <= end; i++) sum += arr[i];
+              pValues[p] = sum;
+              activeProcs.push(p);
+            } else {
+              pValues[p] = 0;
+            }
+          }
+
+          emit(
+            "READ",
+            2,
+            `Local chunk reduction complete: Partitioned N=${N} input into ${P} chunks. Processors compute local chunk sums in parallel. Registers loaded with chunk totals: [${pValues.join(", ")}].`,
+            {
+              processors: activeProcs,
+              arraySnapshot: [...arr],
+              pValues: [...pValues],
+              blockRanges,
+            },
+          );
+        }
+      } else {
+        for (let p = 0; p < P; p++) {
+          pValues[p] = p < N ? arr[p] : 0;
+        }
+
+        const idleProcs = Array.from({ length: P - N }, (_, idx) => N + idx);
+        const activeProcs = Array.from(
+          { length: Math.min(N, P) },
+          (_, idx) => idx,
+        );
+
+        emit(
+          "HIGHLIGHT",
+          2,
+          `Direct mapping: PEs 0..${activeProcs.length - 1} load input elements. Remaining PEs are IDLE with value 0.`,
+          {
+            processors: activeProcs,
+            idleProcessors: idleProcs,
+            arraySnapshot: [...arr],
+            pValues: [...pValues],
+          },
+        );
+      }
+
+      // Part 2: Global Prefix Sum across Topology on registers pValues
+      let globalPrefix = [...pValues];
+
+      if (topology === "1d") {
+        const activeP = Math.min(N, P);
+        const idleP =
+          N < P
+            ? Array.from({ length: P - activeP }, (_, i) => activeP + i)
+            : [];
+        const steps = Math.ceil(Math.log2(activeP));
+        for (let s = 1; s <= steps; s++) {
+          const offset = Math.pow(2, s - 1);
+          const activeProcs: number[] = [];
+          const comms: any[] = [];
+          const temp = [...globalPrefix];
+
+          for (let p = 0; p < activeP; p++) {
+            if (p >= offset) {
+              activeProcs.push(p);
+              comms.push({
+                fromP: p - offset,
+                toP: p,
+                label: "ADD",
+                value: globalPrefix[p - offset],
+              });
+              temp[p] = globalPrefix[p] + globalPrefix[p - offset];
+            }
+          }
+
+          if (activeProcs.length > 0) {
+            emit(
+              "HIGHLIGHT",
+              5,
+              `1D Global Prefix Sum Step ${s}: offset distance is ${offset}.`,
+              {
+                processors: activeProcs,
+                idleProcessors: idleP,
+                arraySnapshot: [...arr],
+                pValues: [...globalPrefix],
+              },
+            );
+
+            emit(
+              "SEND_MESSAGE",
+              6,
+              `Active processors receive accumulated sums from neighbor P_(i-${offset}).`,
+              {
+                processors: activeProcs,
+                idleProcessors: idleP,
+                arraySnapshot: [...arr],
+                pValues: [...globalPrefix],
+                communications: comms,
+              },
+            );
+
+            globalPrefix = [...temp];
+
+            emit(
+              "WRITE",
+              7,
+              `Processors write running cumulative sums to local registers.`,
+              {
+                processors: activeProcs,
+                idleProcessors: idleP,
+                arraySnapshot: [...arr],
+                pValues: [...globalPrefix],
+              },
+            );
+          }
+        }
+      } else if (topology === "2d") {
+        let cols = 4;
+        let rows = 2;
+        if (P === 2) {
+          cols = 2;
+          rows = 1;
+        } else if (P === 4) {
+          cols = 2;
+          rows = 2;
+        } else if (P === 8) {
+          cols = 4;
+          rows = 2;
+        } else if (P === 16) {
+          cols = 4;
+          rows = 4;
+        }
+
+        const activeP = Math.min(N, P);
+        const idleP =
+          N < P
+            ? Array.from({ length: P - activeP }, (_, i) => activeP + i)
+            : [];
+
+        const rowSteps = Math.ceil(Math.log2(cols));
+        for (let s = 1; s <= rowSteps; s++) {
+          const offset = Math.pow(2, s - 1);
+          const activeProcs: number[] = [];
+          const comms: any[] = [];
+          const temp = [...globalPrefix];
+
+          for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+              const targetP = r * cols + c;
+              if (targetP < activeP && c >= offset) {
+                const sourceP = r * cols + c - offset;
+                if (sourceP < activeP) {
+                  activeProcs.push(targetP);
+                  comms.push({
+                    fromP: sourceP,
+                    toP: targetP,
+                    label: "ADD",
+                    value: globalPrefix[sourceP],
+                  });
+                  temp[targetP] = globalPrefix[targetP] + globalPrefix[sourceP];
+                }
+              }
+            }
+          }
+
+          if (activeProcs.length > 0) {
+            emit(
+              "SEND_MESSAGE",
+              6,
+              `Mesh Stage 1 Row Scan (offset ${offset}): Row processors communicate prefix sums concurrently.`,
+              {
+                processors: activeProcs,
+                idleProcessors: idleP,
+                arraySnapshot: [...arr],
+                pValues: [...globalPrefix],
+                communications: comms,
+              },
+            );
+
+            globalPrefix = [...temp];
+
+            emit("WRITE", 7, `Updated parallel row prefix sums.`, {
+              processors: activeProcs,
+              idleProcessors: idleP,
+              arraySnapshot: [...arr],
+              pValues: [...globalPrefix],
+            });
+          }
+        }
+
+        if (rows > 1) {
+          const colSteps = Math.ceil(Math.log2(rows));
+          for (let s = 1; s <= colSteps; s++) {
+            const offset = Math.pow(2, s - 1);
+            const activeProcs: number[] = [];
+            const comms: any[] = [];
+            const temp = [...globalPrefix];
+
+            for (let r = 0; r < rows; r++) {
+              if (r >= offset) {
+                const targetP = r * cols + cols - 1;
+                const sourceP = (r - offset) * cols + cols - 1;
+                if (targetP < activeP && sourceP < activeP) {
+                  activeProcs.push(targetP);
+                  comms.push({
+                    fromP: sourceP,
+                    toP: targetP,
+                    label: "ADD",
+                    value: globalPrefix[sourceP],
+                  });
+                  temp[targetP] = globalPrefix[targetP] + globalPrefix[sourceP];
+                }
+              }
+            }
+
+            if (activeProcs.length > 0) {
+              emit(
+                "SEND_MESSAGE",
+                9,
+                `Mesh Stage 2 Column Scan (offset ${offset}): Accumulating row sum totals down column ${cols - 1}.`,
+                {
+                  processors: activeProcs,
+                  idleProcessors: idleP,
+                  arraySnapshot: [...arr],
+                  pValues: [...globalPrefix],
+                  communications: comms,
+                },
+              );
+
+              globalPrefix = [...temp];
+
+              emit("WRITE", 10, `Updated column row totals.`, {
+                processors: activeProcs,
+                idleProcessors: idleP,
+                arraySnapshot: [...arr],
+                pValues: [...globalPrefix],
+              });
+            }
+          }
+
+          const activeProcs: number[] = [];
+          const comms: any[] = [];
+          const temp = [...globalPrefix];
+
+          for (let r = 1; r < rows; r++) {
+            const offsetSourceP = (r - 1) * cols + cols - 1;
+            const offsetValue = globalPrefix[offsetSourceP];
+            for (let c = 0; c < cols; c++) {
+              const targetP = r * cols + c;
+              if (
+                targetP < activeP &&
+                c < cols - 1 &&
+                offsetSourceP < activeP
+              ) {
+                activeProcs.push(targetP);
+                comms.push({
+                  fromP: offsetSourceP,
+                  toP: targetP,
+                  label: "SHIFT",
+                  value: offsetValue,
+                });
+                temp[targetP] = globalPrefix[targetP] + offsetValue;
+              }
+            }
+          }
+
+          if (activeProcs.length > 0) {
+            emit(
+              "SEND_MESSAGE",
+              12,
+              `Mesh Stage 3 Offset Broadcast: Processors concurrently read accumulated offset from preceding row end-nodes.`,
+              {
+                processors: activeProcs,
+                idleProcessors: idleP,
+                arraySnapshot: [...arr],
+                pValues: [...globalPrefix],
+                communications: comms,
+              },
+            );
+
+            globalPrefix = [...temp];
+
+            emit(
+              "WRITE",
+              13,
+              `Offsets added. Unified 2D Mesh Prefix Sum complete!`,
+              {
+                processors: activeProcs,
+                idleProcessors: idleP,
+                arraySnapshot: [...arr],
+                pValues: [...globalPrefix],
+              },
+            );
+          }
+        }
+      } else {
+        const activeP = Math.min(N, P);
+        const idleP =
+          N < P
+            ? Array.from({ length: P - activeP }, (_, i) => activeP + i)
+            : [];
+        const activeProcs = Array.from({ length: activeP }, (_, idx) => idx);
+        const dims = Math.min(
+          topology === "4d" ? 4 : 3,
+          Math.ceil(Math.log2(activeP)),
+        );
+        let subcubeSums = [...globalPrefix];
+        let runningSums = [...globalPrefix];
+
+        for (let d = 0; d < dims; d++) {
+          const comms: any[] = [];
+          const nextSubcubeSums = [...subcubeSums];
+          const nextRunningSums = [...runningSums];
+          const bitMask = 1 << d;
+
+          for (let p = 0; p < activeP; p++) {
+            const q = p ^ bitMask;
+            if (q < activeP) {
+              comms.push({
+                fromP: q,
+                toP: p,
+                label: "EXCH",
+                value: subcubeSums[q],
+              });
+              nextSubcubeSums[p] = subcubeSums[p] + subcubeSums[q];
+              if ((p & bitMask) !== 0) {
+                nextRunningSums[p] = runningSums[p] + subcubeSums[q];
+              }
+            }
+          }
+
+          const updatingProcs = activeProcs.filter((p) => (p & bitMask) !== 0);
+          const sendingProcs = activeProcs.filter((p) => (p & bitMask) === 0);
+
+          emit(
+            "SEND_MESSAGE",
+            6,
+            `Hypercube scan round ${d + 1} (Dim ${d}): Nodes exchange subcube totals. High nodes (bit ${d}=1) add received subcube sum to prefix total.`,
+            {
+              processors: updatingProcs,
+              sendingProcessors: sendingProcs,
+              idleProcessors: idleP,
+              arraySnapshot: [...arr],
+              pValues: [...runningSums],
+              communications: comms,
+            },
+          );
+
+          subcubeSums = [...nextSubcubeSums];
+          runningSums = [...nextRunningSums];
+
+          emit(
+            "WRITE",
+            7,
+            `Hypercube dimension ${d} subcube and prefix totals updated.`,
+            {
+              processors: updatingProcs,
+              sendingProcessors: sendingProcs,
+              idleProcessors: idleP,
+              arraySnapshot: [...arr],
+              pValues: [...runningSums],
+            },
+          );
+        }
+        globalPrefix = [...runningSums];
+      }
+
+      // Part 3: Block Offset Distribution (if N > P)
+      if (hasChunking) {
+        // Compute local prefix sums for each chunk and add offset from preceding chunks
+        const originalInput = [...arr];
+        const activeProcs: number[] = [];
+        const activeIndices: number[] = [];
+
+        for (let p = 0; p < P; p++) {
+          const [start, end] = blockRanges[p];
+          if (start < N) {
+            let chunkAcc = p > 0 ? globalPrefix[p - 1] : 0;
+            for (let i = start; i <= end; i++) {
+              chunkAcc += originalInput[i];
+              arr[i] = chunkAcc;
+              activeProcs.push(p);
+              activeIndices.push(i);
+            }
+          }
+        }
+
+        emit(
+          "WRITE",
+          15,
+          `Processors compute local chunk prefix scans using offsets from preceding chunks and write final cumulative prefix sums back to shared memory.`,
+          {
+            processors: activeProcs,
+            indices: activeIndices,
+            arraySnapshot: [...arr],
+            pValues: [...globalPrefix],
+          },
+        );
+
+        emit(
+          "WRITE",
+          16,
+          `Parallel Prefix Sum complete! Final cumulative prefix sums answer: [${arr.join(", ")}].`,
+          {
+            indices: Array.from({ length: N }, (_, i) => i),
+            arraySnapshot: [...arr],
+            pValues: [...globalPrefix],
+          },
+        );
+      } else {
+        const activeP = Math.min(N, P);
+        const idleP =
+          N < P
+            ? Array.from({ length: P - activeP }, (_, i) => activeP + i)
+            : [];
+        for (let p = 0; p < activeP; p++) {
+          arr[p] = globalPrefix[p];
+        }
+
+        const allProcs = Array.from({ length: activeP }, (_, i) => i);
+        const allIndices = Array.from({ length: activeP }, (_, i) => i);
+
+        emit(
+          "WRITE",
+          15,
+          `Processors write calculated cumulative prefix sums back to shared memory cells.`,
+          {
+            processors: allProcs,
+            indices: allIndices,
+            idleProcessors: idleP,
+            arraySnapshot: [...arr],
+            pValues: [...globalPrefix],
+          },
+        );
+
+        emit(
+          "WRITE",
+          16,
+          `Parallel Prefix Sum complete! Final cumulative prefix sums answer: [${arr.slice(0, N).join(", ")}].`,
+          {
+            indices: allIndices,
+            idleProcessors: idleP,
+            arraySnapshot: [...arr],
+            pValues: [...globalPrefix],
+          },
+        );
+      }
       break;
     }
 

@@ -115,6 +115,12 @@ export interface SimulationEvent {
     range: number;
     stage: "distribute" | "sort" | "concatenate";
   };
+  pValues?: number[];
+  pChunks?: (number[] | string)[];
+  sendingProcessors?: number[];
+  idleProcessors?: number[];
+  communications?: { fromP: number; toP: number; label: string }[];
+  blockRanges?: [number, number][];
 }
 
 export interface SimulationState {
