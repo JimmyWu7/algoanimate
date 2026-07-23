@@ -619,17 +619,24 @@ export function CanvasVisualizer({
     );
 
     const desc = currentEvent?.description?.toLowerCase() || "";
-    const isChunkPartitionStep =
-      Boolean(
-        currentEvent?.blockRanges && currentEvent.blockRanges.length > 0,
-      ) &&
-      (desc.includes("partitioned") || currentEvent?.step === 1);
+    const isInitialStep =
+      desc.includes("initialize") || currentEvent?.step === 0;
     const isLocalComplete =
       desc.includes("local reduction complete") ||
+      desc.includes("local chunk reduction complete") ||
       desc.includes("local chunk reductions complete") ||
       desc.includes("local scans complete");
     const isAlgorithmComplete =
       desc.includes("complete") && !desc.includes("local");
+    const hasChunking =
+      size > processorCount ||
+      Boolean(currentEvent?.blockRanges && currentEvent.blockRanges.length > 0);
+    const isChunkPartitionStep =
+      !isInitialStep &&
+      !isLocalComplete &&
+      !isAlgorithmComplete &&
+      (desc.includes("partitioned") ||
+        (hasChunking && currentEvent?.step === 1));
     const isPrefixSum = algorithmId === "parallel-prefix-sum";
     const isReduction = algorithmId === "parallel-reduction";
 
@@ -880,18 +887,20 @@ export function CanvasVisualizer({
     const memHeight = 50;
 
     // Chunk ownership partitions visualization if size > processorCount
-    const hasChunking =
-      size > processorCount ||
-      (currentEvent?.blockRanges && currentEvent.blockRanges.length > 0);
-
     if (hasChunking && processorCount > 1) {
-      const blockSize = Math.ceil(size / processorCount);
+      const baseSize = Math.floor(size / processorCount);
+      const remainder = size % processorCount;
+      let currStart = 0;
+      const defaultRanges: [number, number][] = [];
+      for (let p = 0; p < processorCount; p++) {
+        const chunkSize = baseSize + (p < remainder ? 1 : 0);
+        const start = currStart;
+        const end = currStart + chunkSize - 1;
+        currStart += chunkSize;
+        defaultRanges.push([start, end]);
+      }
       const ranges: [number, number][] =
-        currentEvent?.blockRanges ||
-        Array.from({ length: processorCount }, (_, p) => [
-          p * blockSize,
-          Math.min(size - 1, (p + 1) * blockSize - 1),
-        ]);
+        currentEvent?.blockRanges || defaultRanges;
 
       ctx.save();
       ranges.forEach(([startIdx, endIdx]: [number, number], p: number) => {
@@ -966,8 +975,17 @@ export function CanvasVisualizer({
             ([s, e]: [number, number]) => i >= s && i <= e,
           );
         } else {
-          const blockSize = Math.ceil(size / processorCount);
-          chunkP = Math.floor(i / blockSize);
+          const baseSize = Math.floor(size / processorCount);
+          const remainder = size % processorCount;
+          let currStart = 0;
+          for (let p = 0; p < processorCount; p++) {
+            const chunkSize = baseSize + (p < remainder ? 1 : 0);
+            if (i >= currStart && i < currStart + chunkSize) {
+              chunkP = p;
+              break;
+            }
+            currStart += chunkSize;
+          }
         }
         if (chunkP !== -1 && chunkP < processorCount) {
           const color = CHUNK_COLORS[chunkP % CHUNK_COLORS.length];
@@ -1231,15 +1249,17 @@ export function CanvasVisualizer({
           desc.includes("local scans complete");
         const isAlgorithmComplete =
           desc.includes("complete") && !desc.includes("local");
+        const hasChunking2D =
+          pData.length > processorCount ||
+          Boolean(
+            currentEvent?.blockRanges && currentEvent.blockRanges.length > 0,
+          );
         const isChunkPartitionStep =
           !isInitialStep &&
           !isLocalComplete &&
           !isAlgorithmComplete &&
-          (Boolean(
-            currentEvent?.blockRanges && currentEvent.blockRanges.length > 0,
-          ) ||
-            desc.includes("partitioned") ||
-            desc.includes("local"));
+          (desc.includes("partitioned") ||
+            (hasChunking2D && currentEvent?.step === 1));
         const isPrefixSum = algorithmId === "parallel-prefix-sum";
         const isReduction = algorithmId === "parallel-reduction";
 
@@ -1559,15 +1579,17 @@ export function CanvasVisualizer({
       const isPrefixSum = algorithmId === "parallel-prefix-sum";
       const isReduction = algorithmId === "parallel-reduction";
 
+      const hasChunking3D =
+        pData.length > processorCount ||
+        Boolean(
+          currentEvent?.blockRanges && currentEvent.blockRanges.length > 0,
+        );
       const isChunkPartitionStep =
         !isInitialStep &&
         !isLocalComplete &&
         !isAlgorithmComplete &&
-        (Boolean(
-          currentEvent?.blockRanges && currentEvent.blockRanges.length > 0,
-        ) ||
-          desc.includes("partitioned") ||
-          desc.includes("local"));
+        (desc.includes("partitioned") ||
+          (hasChunking3D && currentEvent?.step === 1));
       const hasChunk =
         (currentEvent?.pChunks?.[idx] &&
           currentEvent.pChunks[idx].length > 0) ||

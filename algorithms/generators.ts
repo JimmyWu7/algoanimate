@@ -1581,19 +1581,32 @@ export function generateEvents(
       // Initialize processor values
       let pValues = Array(P).fill(0);
       let pChunks: number[][] = Array.from({ length: P }, () => []);
+      let blockRanges: [number, number][] = [];
 
       if (N <= P) {
         for (let p = 0; p < P; p++) {
           pValues[p] = p < N ? arr[p] : 0;
-          if (p < N) pChunks[p] = [arr[p]];
+          if (p < N) {
+            pChunks[p] = [arr[p]];
+            blockRanges.push([p, p]);
+          } else {
+            blockRanges.push([p, p - 1]);
+          }
         }
       } else {
-        const blockSize = Math.ceil(N / P);
+        const baseSize = Math.floor(N / P);
+        const remainder = N % P;
+        let currentStart = 0;
         for (let p = 0; p < P; p++) {
-          const start = p * blockSize;
-          const end = Math.min(N - 1, (p + 1) * blockSize - 1);
-          pValues[p] = start < N ? arr[start] : 0;
-          if (start < N) pChunks[p] = arr.slice(start, end + 1);
+          const chunkSize = baseSize + (p < remainder ? 1 : 0);
+          const start = currentStart;
+          const end = currentStart + chunkSize - 1;
+          currentStart += chunkSize;
+          blockRanges.push([start, end]);
+          if (start < N) {
+            pChunks[p] = arr.slice(start, end + 1);
+            pValues[p] = arr[start];
+          }
         }
       }
 
@@ -1608,24 +1621,17 @@ export function generateEvents(
           arraySnapshot: [...arr],
           pValues: [...pValues],
           pChunks: pChunks.map((c) => [...c]),
+          blockRanges,
           idleProcessors: initialIdleProcs,
         },
       );
 
       // Part 1: Local Computation / Chunking (if N > P)
       if (N > P) {
-        const blockSize = Math.ceil(N / P);
-        const blockRanges: [number, number][] = [];
-        for (let p = 0; p < P; p++) {
-          const start = p * blockSize;
-          const end = Math.min(N - 1, (p + 1) * blockSize - 1);
-          blockRanges.push([start, end]);
-        }
-
         emit(
           "HIGHLIGHT",
           1,
-          `Input size N (${N}) > Processors P (${P}). Partitioned into ${P} chunks. Processors parallel reduction on local chunks.`,
+          `Input size N (${N}) > Processors P (${P}). Partitioned into ${P} balanced chunks. Processors parallel reduction on local chunks.`,
           {
             arraySnapshot: [...arr],
             pValues: [...pValues],
@@ -1636,8 +1642,9 @@ export function generateEvents(
 
         if (topology === "1d") {
           // Compute local sums step by step for 1D topology (with memory visualizer)
+          const maxChunkSize = Math.max(...pChunks.map((c) => c.length));
           const tempLocalAcc = pChunks.map((c) => (c.length > 0 ? c[0] : 0));
-          for (let step = 1; step < blockSize; step++) {
+          for (let step = 1; step < maxChunkSize; step++) {
             const activeProcs: number[] = [];
             const activeIndices: number[] = [];
 
@@ -1658,7 +1665,7 @@ export function generateEvents(
               emit(
                 "READ",
                 2,
-                `Local chunk reduction (Step ${step}/${blockSize - 1}): Each processor reads next element in its assigned chunk (${procReadDetails}) and adds it to its local accumulator.`,
+                `Local chunk reduction (Step ${step}/${maxChunkSize - 1}): Each processor reads next element in its assigned chunk (${procReadDetails}) and adds it to its local accumulator.`,
                 {
                   processors: activeProcs,
                   indices: activeIndices,
@@ -1708,7 +1715,7 @@ export function generateEvents(
           emit(
             "READ",
             2,
-            `Local chunk reduction complete: Partitioned N=${N} input into ${P} chunks. Processors compute local chunk sums in parallel. Partial sums in registers: [${pValues.join(", ")}].`,
+            `Local chunk reduction complete: Partitioned N=${N} input into ${P} balanced chunks. Processors compute local chunk sums in parallel. Partial sums in registers: [${pValues.join(", ")}].`,
             {
               processors: activeProcs,
               arraySnapshot: [...arr],
@@ -2010,19 +2017,32 @@ export function generateEvents(
 
       let pValues = Array(P).fill(0);
       let pChunks: number[][] = Array.from({ length: P }, () => []);
+      let blockRanges: [number, number][] = [];
 
       if (N <= P) {
         for (let p = 0; p < P; p++) {
           pValues[p] = p < N ? arr[p] : 0;
-          if (p < N) pChunks[p] = [arr[p]];
+          if (p < N) {
+            pChunks[p] = [arr[p]];
+            blockRanges.push([p, p]);
+          } else {
+            blockRanges.push([p, p - 1]);
+          }
         }
       } else {
-        const blockSize = Math.ceil(N / P);
+        const baseSize = Math.floor(N / P);
+        const remainder = N % P;
+        let currentStart = 0;
         for (let p = 0; p < P; p++) {
-          const start = p * blockSize;
-          const end = Math.min(N - 1, (p + 1) * blockSize - 1);
-          pValues[p] = start < N ? arr[start] : 0;
-          if (start < N) pChunks[p] = arr.slice(start, end + 1);
+          const chunkSize = baseSize + (p < remainder ? 1 : 0);
+          const start = currentStart;
+          const end = currentStart + chunkSize - 1;
+          currentStart += chunkSize;
+          blockRanges.push([start, end]);
+          if (start < N) {
+            pChunks[p] = arr.slice(start, end + 1);
+            pValues[p] = arr[start];
+          }
         }
       }
 
@@ -2037,26 +2057,19 @@ export function generateEvents(
           arraySnapshot: [...arr],
           pValues: [...pValues],
           pChunks: pChunks.map((c) => [...c]),
+          blockRanges,
           idleProcessors: initialIdleProcs,
         },
       );
 
-      let blockRanges: [number, number][] = [];
       const hasChunking = N > P;
 
       // Part 1: Local Prefix Sum on each chunk (if N > P)
       if (hasChunking) {
-        const blockSize = Math.ceil(N / P);
-        for (let p = 0; p < P; p++) {
-          const start = p * blockSize;
-          const end = Math.min(N - 1, (p + 1) * blockSize - 1);
-          blockRanges.push([start, end]);
-        }
-
         emit(
           "HIGHLIGHT",
           1,
-          `Input size N (${N}) > Processors P (${P}). Partitioned into ${P} chunks. Processors parallel local prefix scan on assigned chunks.`,
+          `Input size N (${N}) > Processors P (${P}). Partitioned into ${P} balanced chunks. Processors parallel local prefix scan on assigned chunks.`,
           {
             arraySnapshot: [...arr],
             pValues: [...pValues],
@@ -2072,7 +2085,8 @@ export function generateEvents(
             pValues[p] = start < N ? arr[start] : 0;
           }
 
-          for (let step = 1; step < blockSize; step++) {
+          const maxChunkSize = Math.max(...pChunks.map((c) => c.length));
+          for (let step = 1; step < maxChunkSize; step++) {
             const activeProcs: number[] = [];
             const activeIndices: number[] = [];
 
@@ -2093,7 +2107,7 @@ export function generateEvents(
               emit(
                 "READ",
                 2,
-                `Local chunk reduction (Step ${step}/${blockSize - 1}): Each processor reads next element in its assigned chunk (${procReadDetails}) and adds it to its local accumulator.`,
+                `Local chunk reduction (Step ${step}/${maxChunkSize - 1}): Each processor reads next element in its assigned chunk (${procReadDetails}) and adds it to its local accumulator.`,
                 {
                   processors: activeProcs,
                   indices: activeIndices,
@@ -2131,7 +2145,7 @@ export function generateEvents(
           emit(
             "READ",
             2,
-            `Local chunk reduction complete: Partitioned N=${N} input into ${P} chunks. Processors compute local chunk sums in parallel. Registers loaded with chunk totals: [${pValues.join(", ")}].`,
+            `Local chunk reduction complete: Partitioned N=${N} input into ${P} balanced chunks. Processors compute local chunk sums in parallel. Registers loaded with chunk totals: [${pValues.join(", ")}].`,
             {
               processors: activeProcs,
               arraySnapshot: [...arr],
