@@ -9,6 +9,8 @@ export type AlgorithmId =
   | "bucket-sort"
   | "radix-sort"
   | "heap-sort"
+  | "timsort"
+  | "greedy"
   | "binary-search"
   | "bfs"
   | "dfs"
@@ -43,6 +45,7 @@ export interface AlgorithmMetadata {
     | "Sorting"
     | "Searching"
     | "Graphs"
+    | "Greedy & Optimization"
     | "Parallel Computing"
     | "Numerical";
   model: ComputationalModelId;
@@ -96,8 +99,13 @@ export interface SimulationEvent {
   msg?: string | number; // message content
   nodeIds?: number[]; // graph nodes
   edgeIds?: string[]; // graph edges: 'u-v'
+  mstEdges?: string[]; // list of edges accepted into Minimum Spanning Tree
+  mstTotalWeight?: number; // running total weight of MST
+  rejectedEdges?: string[]; // edges rejected because they create cycles
+  candidateEdge?: string; // current edge under evaluation
+  disjointSets?: { [key: number]: number }; // parent pointers for Union-Find
   activeNodes?: number[]; // currently active elements
-  queueState?: string[]; // state of the queue/priority queue for BFS/Dijkstra
+  queueState?: string[]; // state of the queue/priority queue for BFS/Dijkstra/Prim
   matrixCoords?: { r: number; c: number; processorId?: number }[]; // for matrix mult
   arraySnapshot?: number[]; // snapshot of array-based states at this step
   k?: number; // current bitonic sublist size
@@ -114,6 +122,34 @@ export interface SimulationEvent {
     maxVal: number;
     range: number;
     stage: "distribute" | "sort" | "concatenate";
+  };
+  timsortData?: {
+    runSize: number;
+    minRun?: number;
+    runs: { start: number; end: number; sorted: boolean }[];
+    runStack?: { start: number; len: number }[];
+    stackAction?: string;
+    activeRunIndex?: number;
+    mergeRange?: [number, number, number]; // [left, mid, right]
+  };
+  greedyData?: {
+    capacity: number;
+    currentWeight: number;
+    currentValue: number;
+    items: {
+      id: number;
+      label: string;
+      weight: number;
+      value: number;
+      density: number;
+      fractionTaken: number;
+      status:
+        | "unconsidered"
+        | "considering"
+        | "taken"
+        | "partially_taken"
+        | "skipped";
+    }[];
   };
   pValues?: number[];
   pChunks?: (number[] | string)[];

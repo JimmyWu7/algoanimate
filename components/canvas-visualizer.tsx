@@ -1853,7 +1853,14 @@ export function CanvasVisualizer({
     const isDijkstra = algorithmId === "dijkstra";
     const isDFS = algorithmId === "dfs";
     const isAStar = algorithmId === "astar";
+    const isPrim = algorithmId === "prim";
+    const isKruskal = algorithmId === "kruskal";
     const isAnyGraph = isBFS || isDijkstra || isDFS || isAStar;
+
+    const mstEdges = currentEvent?.mstEdges || [];
+    const rejectedEdges = currentEvent?.rejectedEdges || [];
+    const candidateEdge = currentEvent?.candidateEdge;
+    const mstTotalWeight = currentEvent?.mstTotalWeight ?? 0;
 
     let shortestPathNodes: number[] = [];
     let shortestPathEdges: string[] = [];
@@ -1874,6 +1881,30 @@ export function CanvasVisualizer({
       }
     }
 
+    // Top Right Total MST Weight Card for Prim / Kruskal
+    if (isPrim || isKruskal) {
+      const cardW = 180;
+      const cardH = 46;
+      const cardX = w - cardW - 40;
+      const cardY = 30;
+
+      ctx.fillStyle = "#09090b";
+      ctx.strokeStyle = "#10b981";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.roundRect(cardX, cardY, cardW, cardH, 6);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = "#71717a";
+      ctx.font = "9px var(--font-mono, monospace)";
+      ctx.fillText("MST TOTAL WEIGHT", cardX + 12, cardY + 16);
+
+      ctx.fillStyle = "#34d399";
+      ctx.font = "bold 16px var(--font-mono, monospace)";
+      ctx.fillText(`${mstTotalWeight}`, cardX + 12, cardY + 36);
+    }
+
     // 1. Draw Edges
     graph.nodes.forEach((u) => {
       const neighbors = graph.adjacencyList[u.id] || [];
@@ -1885,10 +1916,24 @@ export function CanvasVisualizer({
           u.id < vNode.id ? `${u.id}-${vNode.id}` : `${vNode.id}-${u.id}`;
         const isEdgeVisited = currentEvent?.edgeIds?.includes(edgeId);
 
-        let strokeStyle = "#52525b"; // Brighter gray default edge line (originally #1e1e24)
+        let strokeStyle = "#52525b"; // Brighter gray default edge line
         let lineWidth = 1.5;
 
-        if (isFinalStep && isAnyGraph) {
+        if (isPrim || isKruskal) {
+          if (mstEdges.includes(edgeId)) {
+            strokeStyle = "#10b981"; // Emerald for MST edge
+            lineWidth = 4;
+          } else if (candidateEdge === edgeId) {
+            strokeStyle = "#f59e0b"; // Amber for candidate edge
+            lineWidth = 4;
+          } else if (rejectedEdges.includes(edgeId)) {
+            strokeStyle = "#f43f5e"; // Rose red for cycle edge
+            lineWidth = 2;
+          } else {
+            strokeStyle = "#3f3f46";
+            lineWidth = 1.5;
+          }
+        } else if (isFinalStep && isAnyGraph) {
           if (shortestPathEdges.includes(edgeId)) {
             strokeStyle = "#10b981"; // Bright green for shortest path
             lineWidth = 4;
@@ -1917,13 +1962,26 @@ export function CanvasVisualizer({
           const midX = (u.x + vNode.x) / 2 + 100;
           const midY = (u.y + vNode.y) / 2 + 56;
 
-          const isShortestEdge = shortestPathEdges.includes(edgeId);
-          if (isFinalStep && (isDijkstra || isAStar) && isShortestEdge) {
-            ctx.fillStyle = "#34d399";
-            ctx.font = "bold 11px var(--font-mono, monospace)";
+          const isMstEdge = mstEdges.includes(edgeId);
+          if (isPrim || isKruskal) {
+            ctx.fillStyle = isMstEdge
+              ? "#34d399"
+              : candidateEdge === edgeId
+                ? "#fbbf24"
+                : "#71717a";
+            ctx.font =
+              isMstEdge || candidateEdge === edgeId
+                ? "bold 12px var(--font-mono, monospace)"
+                : "9px var(--font-mono, monospace)";
           } else {
-            ctx.fillStyle = isEdgeVisited ? "#10b981" : "#71717a";
-            ctx.font = "9px var(--font-mono, monospace)";
+            const isShortestEdge = shortestPathEdges.includes(edgeId);
+            if (isFinalStep && (isDijkstra || isAStar) && isShortestEdge) {
+              ctx.fillStyle = "#34d399";
+              ctx.font = "bold 11px var(--font-mono, monospace)";
+            } else {
+              ctx.fillStyle = isEdgeVisited ? "#10b981" : "#71717a";
+              ctx.font = "9px var(--font-mono, monospace)";
+            }
           }
           ctx.fillText(String(edge.weight), midX, midY);
         }
@@ -1935,12 +1993,19 @@ export function CanvasVisualizer({
       const isNodeVisited = currentEvent?.nodeIds?.includes(u.id);
       const isDiscovering = currentEvent?.activeNodes?.includes(u.id);
 
-      let border = "#52525b"; // Brighter gray node border (originally #27272a)
+      let border = "#52525b"; // Brighter gray node border
       let backColor = "#09090b";
       let fontColor = "#d4d4d8";
       let lineWidth = 1.5;
 
-      if (isFinalStep && isAnyGraph) {
+      if (isPrim || isKruskal) {
+        if (isNodeVisited) {
+          border = "#10b981";
+          backColor = "#065f4630";
+          fontColor = "#34d399";
+          lineWidth = 3;
+        }
+      } else if (isFinalStep && isAnyGraph) {
         if (shortestPathNodes.includes(u.id)) {
           border = "#10b981"; // Bright green for shortest path nodes
           backColor = "#065f4630";
@@ -1997,8 +2062,8 @@ export function CanvasVisualizer({
       ctx.textAlign = "left";
     });
 
-    // 3. Draw Queue / Priority Queue / Stack visualization
-    if (isAnyGraph) {
+    // 3. Draw Queue / Priority Queue / Stack / Union-Find state
+    if (isAnyGraph || isPrim || isKruskal) {
       const qState = currentEvent?.queueState || [];
       let title = "";
       if (isBFS) {
@@ -2009,6 +2074,10 @@ export function CanvasVisualizer({
         title = "DIJKSTRA ACTIVE PRIORITY QUEUE (MIN-DIST)";
       } else if (isAStar) {
         title = "A* ACTIVE OPEN LIST (MIN-F = G + H)";
+      } else if (isPrim) {
+        title = "PRIM'S CUT EDGE PRIORITY QUEUE (MIN-WEIGHT CUT)";
+      } else if (isKruskal) {
+        title = "DISJOINT SET UNION (UNION-FIND COMPONENT ROOTS)";
       }
 
       const startY = h - 65; // Draw near the bottom
@@ -2018,7 +2087,38 @@ export function CanvasVisualizer({
       ctx.font = "9px var(--font-mono, monospace)";
       ctx.fillText(title, startX, startY - 12);
 
-      if (qState.length === 0) {
+      if (isKruskal && currentEvent?.disjointSets) {
+        // Draw Disjoint Sets
+        const sets = currentEvent.disjointSets;
+        let currentX = startX;
+        graph.nodes.forEach((n) => {
+          const rootId = sets[n.id];
+          const rootLabel =
+            graph.nodes.find((node) => node.id === rootId)?.label ||
+            String(rootId);
+
+          ctx.fillStyle = "#09090b";
+          ctx.strokeStyle = rootId === n.id ? "#3f3f46" : "#a855f7";
+          ctx.lineWidth = 1.5;
+
+          ctx.beginPath();
+          ctx.roundRect(currentX, startY, 65, 24, 4);
+          ctx.fill();
+          ctx.stroke();
+
+          ctx.fillStyle = rootId === n.id ? "#d4d4d8" : "#c084fc";
+          ctx.font = "bold 10px var(--font-mono, monospace)";
+          ctx.textAlign = "center";
+          ctx.fillText(
+            `${n.label}: Set ${rootLabel}`,
+            currentX + 32,
+            startY + 16,
+          );
+          ctx.textAlign = "left";
+
+          currentX += 72;
+        });
+      } else if (qState.length === 0) {
         ctx.fillStyle = "#3f3f46";
         ctx.font = "italic 11px var(--font-sans, sans-serif)";
         ctx.fillText("Empty", startX, startY + 12);
@@ -2028,7 +2128,7 @@ export function CanvasVisualizer({
 
         displayState.forEach((item, index) => {
           // Draw box for each item
-          const itemWidth = isAStar ? 110 : isDijkstra ? 75 : 40;
+          const itemWidth = isAStar || isPrim ? 110 : isDijkstra ? 75 : 40;
           const itemHeight = 24;
 
           const isCyanHighlight = isBFS || isDFS;
@@ -2036,7 +2136,7 @@ export function CanvasVisualizer({
           // Draw border & fill
           ctx.fillStyle = "#09090b";
           ctx.strokeStyle =
-            index === 0 ? (isCyanHighlight ? "#06b6d4" : "#10b981") : "#3f3f46"; // Highlight front of queue (cyan for BFS/DFS, green for Dijkstra/A*)
+            index === 0 ? (isCyanHighlight ? "#06b6d4" : "#10b981") : "#3f3f46";
           ctx.lineWidth = index === 0 ? 2 : 1;
 
           ctx.beginPath();
@@ -2047,9 +2147,10 @@ export function CanvasVisualizer({
           // Text inside box
           ctx.fillStyle =
             index === 0 ? (isCyanHighlight ? "#22d3ee" : "#34d399") : "#d4d4d8";
-          ctx.font = isAStar
-            ? "bold 9px var(--font-mono, monospace)"
-            : "bold 11px var(--font-mono, monospace)";
+          ctx.font =
+            isAStar || isPrim
+              ? "bold 9px var(--font-mono, monospace)"
+              : "bold 11px var(--font-mono, monospace)";
           ctx.textAlign = "center";
           ctx.fillText(
             item,
@@ -2058,26 +2159,416 @@ export function CanvasVisualizer({
           );
           ctx.textAlign = "left";
 
-          currentX += itemWidth;
-
-          // Draw arrow to next item (if not the last one)
-          if (index < displayState.length - 1) {
-            ctx.strokeStyle = "#3f3f46";
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(currentX + 2, startY + itemHeight / 2);
-            ctx.lineTo(currentX + 10, startY + itemHeight / 2);
-            // arrow head
-            ctx.lineTo(currentX + 7, startY + itemHeight / 2 - 3);
-            ctx.moveTo(currentX + 10, startY + itemHeight / 2);
-            ctx.lineTo(currentX + 7, startY + itemHeight / 2 + 3);
-            ctx.stroke();
-
-            currentX += 12;
-          }
+          currentX += itemWidth + 4;
         });
       }
     }
+  };
+
+  const renderTimsortLayout = (
+    ctx: CanvasRenderingContext2D,
+    w: number,
+    h: number,
+  ) => {
+    const data = ((currentEvent?.arraySnapshot || inputData) as number[]) || [];
+    const size = data.length || 8;
+    const timInfo = currentEvent?.timsortData;
+    const runs = timInfo?.runs || [];
+    const minRun = timInfo?.minRun || timInfo?.runSize || 4;
+    const runStack = timInfo?.runStack || [];
+    const stackAction = timInfo?.stackAction || "RUNNING";
+    const mergeRange = timInfo?.mergeRange;
+
+    // Header label
+    ctx.font = "bold 12px var(--font-mono, monospace)";
+    ctx.fillStyle = "#a1a1aa";
+    ctx.fillText(`TIMSORT NATURAL RUN ENGINE | minRun = ${minRun}`, 80, 35);
+
+    // Subheader / Action Status
+    let statusText = `Scanning natural runs & stack state...`;
+    let statusColor = "#38bdf8";
+
+    if (stackAction === "NATURAL_RUN_ASCENDING") {
+      statusText = `Detected Natural Ascending Run`;
+      statusColor = "#34d399";
+    } else if (
+      stackAction === "NATURAL_RUN_DESCENDING" ||
+      stackAction === "REVERSING"
+    ) {
+      statusText = `Detected Descending Run -> Reversing In-Place`;
+      statusColor = "#f472b6";
+    } else if (stackAction === "EXTENDING_RUN") {
+      statusText = `Run Length < minRun (${minRun}) -> Extending via Insertion Sort`;
+      statusColor = "#fbbf24";
+    } else if (stackAction === "PUSH_STACK") {
+      statusText = `Pushed Run onto Timsort Stack`;
+      statusColor = "#c084fc";
+    } else if (stackAction === "INVARIANT_VIOLATION") {
+      statusText = `Stack Invariant Violated! Merging Stack Top Runs`;
+      statusColor = "#f87171";
+    } else if (
+      stackAction === "STACK_MERGED" ||
+      stackAction === "FORCE_MERGE"
+    ) {
+      statusText = `Merged Stack Runs: [${mergeRange ? `${mergeRange[0]}..${mergeRange[1]}` : ""}] and [${mergeRange ? `${mergeRange[1] + 1}..${mergeRange[2]}` : ""}]`;
+      statusColor = "#a855f7";
+    } else if (stackAction === "COMPLETE") {
+      statusText = `Timsort Execution Complete ✓`;
+      statusColor = "#10b981";
+    }
+
+    ctx.font = "bold 11px var(--font-mono, monospace)";
+    ctx.fillStyle = statusColor;
+    ctx.fillText(`STATUS: ${statusText}`, 80, 52);
+
+    // Array representation
+    const arrayWidth = w - 160;
+    const cellWidth = Math.max(36, arrayWidth / size);
+    const cellHeight = 48;
+    const xOffset = 80;
+    const yOffset = 80;
+
+    // Distinct colors for adjacent runs
+    const runColors = [
+      { border: "#38bdf8", bg: "#38bdf815", text: "#7dd3fc" }, // Sky
+      { border: "#a855f7", bg: "#a855f715", text: "#c084fc" }, // Purple
+      { border: "#f59e0b", bg: "#f59e0b15", text: "#fbbf24" }, // Amber
+      { border: "#ec4899", bg: "#ec489915", text: "#f472b6" }, // Pink
+      { border: "#10b981", bg: "#10b98115", text: "#34d399" }, // Emerald
+    ];
+
+    data.forEach((val, i) => {
+      const x = xOffset + i * cellWidth;
+      const y = yOffset;
+
+      const isVisited = currentEvent?.indices?.includes(i);
+      const isCompare = currentEvent?.type === "COMPARE" && isVisited;
+      const isWrite = currentEvent?.type === "WRITE" && isVisited;
+
+      // Determine run index for this element
+      const runIdx = runs.findIndex((r) => i >= r.start && i <= r.end);
+      const colorScheme =
+        runIdx >= 0 ? runColors[runIdx % runColors.length] : runColors[0];
+
+      let strokeColor = colorScheme.border;
+      let fillColor = colorScheme.bg;
+      let textColor = colorScheme.text;
+      let lineWidth = 1.5;
+
+      if (isCompare) {
+        strokeColor = "#f59e0b";
+        fillColor = "#f59e0b35";
+        textColor = "#fbbf24";
+        lineWidth = 3;
+      } else if (isWrite) {
+        strokeColor = "#10b981";
+        fillColor = "#10b98135";
+        textColor = "#34d399";
+        lineWidth = 3;
+      }
+
+      ctx.fillStyle = fillColor;
+      ctx.fillRect(x + 2, y, cellWidth - 4, cellHeight);
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = lineWidth;
+
+      ctx.beginPath();
+      ctx.roundRect(x + 2, y, cellWidth - 4, cellHeight, 6);
+      ctx.stroke();
+
+      // Write index
+      ctx.fillStyle = "#71717a";
+      ctx.font = "10px var(--font-mono, monospace)";
+      ctx.textAlign = "center";
+      ctx.fillText(String(i), x + cellWidth / 2, yOffset - 6);
+
+      // Write value
+      ctx.fillStyle = textColor;
+      ctx.font = "bold 15px var(--font-sans, sans-serif)";
+      ctx.fillText(String(val), x + cellWidth / 2, y + cellHeight / 2 + 5);
+    });
+
+    // Draw Run Brackets below array
+    const bracketY = yOffset + cellHeight + 16;
+    runs.forEach((r, idx) => {
+      const startX = xOffset + r.start * cellWidth + 3;
+      const endX = xOffset + (r.end + 1) * cellWidth - 3;
+      const colorScheme = runColors[idx % runColors.length];
+
+      ctx.strokeStyle = colorScheme.border;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(startX, bracketY - 8);
+      ctx.lineTo(startX, bracketY);
+      ctx.lineTo(endX, bracketY);
+      ctx.lineTo(endX, bracketY - 8);
+      ctx.stroke();
+
+      const runLen = r.end - r.start + 1;
+      ctx.fillStyle = colorScheme.text;
+      ctx.font = "bold 10px var(--font-mono, monospace)";
+      ctx.textAlign = "center";
+      ctx.fillText(
+        `RUN #${idx + 1} [${r.start}..${r.end}] (len: ${runLen})`,
+        (startX + endX) / 2,
+        bracketY + 14,
+      );
+    });
+
+    // Draw Timsort Run Stack Visualizer Panel
+    const stackPanelY = bracketY + 42;
+    ctx.fillStyle = "#18181b";
+    ctx.strokeStyle = "#27272a";
+    ctx.lineWidth = 1;
+
+    const stackPanelWidth = Math.min(w - 160, 650);
+    ctx.beginPath();
+    ctx.roundRect(xOffset, stackPanelY, stackPanelWidth, 90, 8);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = "#a1a1aa";
+    ctx.font = "bold 10px var(--font-mono, monospace)";
+    ctx.textAlign = "left";
+    ctx.fillText(
+      "TIMSORT RUN STACK (INVARIANTS: len(A) > len(B) + len(C) & len(B) > len(C))",
+      xOffset + 14,
+      stackPanelY + 18,
+    );
+
+    if (runStack.length === 0) {
+      ctx.fillStyle = "#52525b";
+      ctx.font = "italic 11px var(--font-sans, sans-serif)";
+      ctx.fillText(
+        "Run Stack is currently empty",
+        xOffset + 14,
+        stackPanelY + 52,
+      );
+    } else {
+      let cardX = xOffset + 14;
+      const cardY = stackPanelY + 28;
+      const cardWidth = 120;
+      const cardHeight = 48;
+
+      runStack.forEach((st, idx) => {
+        const isTop = idx === runStack.length - 1;
+        const isTopMinus1 = idx === runStack.length - 2;
+        const isTopMinus2 = idx === runStack.length - 3;
+
+        let badgeLabel = `Stack [${idx}]`;
+        if (isTop) badgeLabel = `C (Top)`;
+        else if (isTopMinus1) badgeLabel = `B (Top-1)`;
+        else if (isTopMinus2) badgeLabel = `A (Top-2)`;
+
+        const colorScheme = runColors[idx % runColors.length];
+
+        ctx.fillStyle = "#09090b";
+        ctx.strokeStyle = isTop ? "#38bdf8" : colorScheme.border;
+        ctx.lineWidth = isTop ? 2 : 1;
+
+        ctx.beginPath();
+        ctx.roundRect(cardX, cardY, cardWidth, cardHeight, 6);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = colorScheme.text;
+        ctx.font = "bold 10px var(--font-mono, monospace)";
+        ctx.textAlign = "left";
+        ctx.fillText(badgeLabel, cardX + 8, cardY + 16);
+
+        ctx.fillStyle = "#e4e4e7";
+        ctx.font = "11px var(--font-mono, monospace)";
+        ctx.fillText(
+          `Range: [${st.start}..${st.start + st.len - 1}]`,
+          cardX + 8,
+          cardY + 31,
+        );
+        ctx.fillText(`Length: ${st.len}`, cardX + 8, cardY + 43);
+
+        cardX += cardWidth + 12;
+      });
+    }
+
+    ctx.textAlign = "left";
+  };
+
+  const renderGreedyLayout = (
+    ctx: CanvasRenderingContext2D,
+    w: number,
+    h: number,
+  ) => {
+    const greedy = currentEvent?.greedyData;
+    if (!greedy) return;
+
+    const { capacity, currentWeight, currentValue, items } = greedy;
+
+    // 1. Header & Summary Cards
+    ctx.font = "11px var(--font-mono, monospace)";
+    ctx.fillStyle = "#71717a";
+    ctx.fillText(
+      "FRACTIONAL KNAPSACK: GREEDY DENSITY STRATEGY (VALUE / WEIGHT RATIO)",
+      40,
+      40,
+    );
+
+    // Summary Card 1: Capacity Gauge
+    const cardY = 55;
+    ctx.fillStyle = "#09090b";
+    ctx.strokeStyle = "#27272a";
+    ctx.lineWidth = 1.5;
+
+    ctx.beginPath();
+    ctx.roundRect(40, cardY, 260, 52, 8);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = "#71717a";
+    ctx.font = "9px var(--font-mono, monospace)";
+    ctx.fillText("KNAPSACK CAPACITY USED", 52, cardY + 16);
+
+    ctx.fillStyle = currentWeight >= capacity ? "#f59e0b" : "#10b981";
+    ctx.font = "bold 15px var(--font-mono, monospace)";
+    ctx.fillText(
+      `${currentWeight.toFixed(1)} kg / ${capacity} kg`,
+      52,
+      cardY + 38,
+    );
+
+    // Summary Card 2: Total Value Achieved
+    ctx.beginPath();
+    ctx.roundRect(310, cardY, 260, 52, 8);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = "#71717a";
+    ctx.font = "9px var(--font-mono, monospace)";
+    ctx.fillText("TOTAL VALUE ACCUMULATED", 322, cardY + 16);
+
+    ctx.fillStyle = "#38bdf8";
+    ctx.font = "bold 15px var(--font-mono, monospace)";
+    ctx.fillText(`$${currentValue.toFixed(1)}`, 322, cardY + 38);
+
+    // Visual Capacity Gauge Progress Bar
+    const barX = 40;
+    const barY = 120;
+    const barW = w - 80;
+    const barH = 18;
+
+    ctx.fillStyle = "#18181b";
+    ctx.beginPath();
+    ctx.roundRect(barX, barY, barW, barH, 4);
+    ctx.fill();
+
+    const fillRatio = Math.min(1, currentWeight / capacity);
+    if (fillRatio > 0) {
+      ctx.fillStyle = fillRatio >= 1 ? "#f59e0b" : "#10b981";
+      ctx.beginPath();
+      ctx.roundRect(barX, barY, barW * fillRatio, barH, 4);
+      ctx.fill();
+    }
+
+    ctx.strokeStyle = "#3f3f46";
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(barX, barY, barW, barH);
+
+    ctx.fillStyle = "#e4e4e7";
+    ctx.font = "10px var(--font-mono, monospace)";
+    ctx.textAlign = "center";
+    ctx.fillText(
+      `Knapsack Fill: ${(fillRatio * 100).toFixed(0)}% (${currentWeight.toFixed(1)}kg / ${capacity}kg)`,
+      barX + barW / 2,
+      barY + 13,
+    );
+    ctx.textAlign = "left";
+
+    // 2. Render Items Cards Grid
+    const gridTop = 160;
+    const itemWidth = Math.min(180, (w - 100) / 3);
+    const itemHeight = 110;
+    const gapX = 16;
+    const gapY = 16;
+
+    items.forEach((item, idx) => {
+      const col = idx % 3;
+      const row = Math.floor(idx / 3);
+      const ix = 40 + col * (itemWidth + gapX);
+      const iy = gridTop + row * (itemHeight + gapY);
+
+      let strokeColor = "#27272a";
+      let bgColor = "#09090b";
+      let statusLabel = "Unconsidered";
+      let badgeBg = "#27272a";
+      let badgeText = "#a1a1aa";
+
+      if (item.status === "considering") {
+        strokeColor = "#f59e0b";
+        bgColor = "#f59e0b10";
+        statusLabel = "Evaluating...";
+        badgeBg = "#f59e0b30";
+        badgeText = "#fbbf24";
+      } else if (item.status === "taken") {
+        strokeColor = "#10b981";
+        bgColor = "#10b98110";
+        statusLabel = "100% Taken";
+        badgeBg = "#10b98130";
+        badgeText = "#34d399";
+      } else if (item.status === "partially_taken") {
+        strokeColor = "#38bdf8";
+        bgColor = "#38bdf810";
+        statusLabel = `${(item.fractionTaken * 100).toFixed(0)}% Fraction`;
+        badgeBg = "#38bdf830";
+        badgeText = "#38bdf8";
+      } else if (item.status === "skipped") {
+        strokeColor = "#3f3f46";
+        bgColor = "#09090b";
+        statusLabel = "Skipped";
+        badgeBg = "#27272a";
+        badgeText = "#71717a";
+      }
+
+      ctx.fillStyle = bgColor;
+      ctx.beginPath();
+      ctx.roundRect(ix, iy, itemWidth, itemHeight, 8);
+      ctx.fill();
+
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth =
+        item.status === "considering" ||
+        item.status === "taken" ||
+        item.status === "partially_taken"
+          ? 2.5
+          : 1;
+      ctx.stroke();
+
+      // Title & Badge
+      ctx.fillStyle = "#f4f4f5";
+      ctx.font = "bold 13px var(--font-sans, sans-serif)";
+      ctx.fillText(item.label, ix + 12, iy + 24);
+
+      // Status Badge
+      ctx.fillStyle = badgeBg;
+      ctx.beginPath();
+      ctx.roundRect(ix + itemWidth - 75, iy + 10, 65, 18, 9);
+      ctx.fill();
+
+      ctx.fillStyle = badgeText;
+      ctx.font = "bold 9px var(--font-mono, monospace)";
+      ctx.textAlign = "center";
+      ctx.fillText(statusLabel, ix + itemWidth - 42, iy + 22);
+      ctx.textAlign = "left";
+
+      // Details: Weight, Value, Density Ratio
+      ctx.fillStyle = "#a1a1aa";
+      ctx.font = "11px var(--font-mono, monospace)";
+      ctx.fillText(`Weight: ${item.weight} kg`, ix + 12, iy + 50);
+      ctx.fillText(`Value: $${item.value}`, ix + 12, iy + 68);
+
+      ctx.fillStyle = "#38bdf8";
+      ctx.font = "bold 11px var(--font-mono, monospace)";
+      ctx.fillText(`Density: $${item.density.toFixed(1)}/kg`, ix + 12, iy + 90);
+    });
+
+    ctx.textAlign = "left";
   };
 
   const computeMergeSortTree = (
@@ -3437,10 +3928,16 @@ export function CanvasVisualizer({
       algorithmId === "dfs" ||
       algorithmId === "astar" ||
       algorithmId === "dijkstra" ||
+      algorithmId === "prim" ||
+      algorithmId === "kruskal" ||
       algorithmId === "parallel-bfs";
 
     if (isGraphAlgorithm) {
       renderGraph(ctx, width, height);
+    } else if (algorithmId === "timsort") {
+      renderTimsortLayout(ctx, width, height);
+    } else if (algorithmId === "greedy") {
+      renderGreedyLayout(ctx, width, height);
     } else if (algorithmId === "merge-sort") {
       const isFinalStep =
         currentEvent && events && currentStep === events.length - 1;

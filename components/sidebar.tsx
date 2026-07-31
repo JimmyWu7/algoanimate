@@ -10,9 +10,8 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
-  Menu,
-  Activity,
-  Award,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { ALGORITHM_REGISTRY } from "@/lib/algorithm-registry";
 import { AlgorithmId } from "@/types/algorithms";
@@ -24,6 +23,8 @@ interface SidebarProps {
   setOpenSettings: (open: boolean) => void;
 }
 
+const INITIAL_SEQ_COUNT = 8;
+
 export function Sidebar({
   activeAlgorithmId,
   onSelectAlgorithm,
@@ -32,6 +33,7 @@ export function Sidebar({
 }: SidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [showAllSeq, setShowAllSeq] = useState(false);
 
   // Group algorithms by categories
   const sequentialAlgs = ALGORITHM_REGISTRY.filter(
@@ -50,6 +52,19 @@ export function Sidebar({
   const filteredSeq = filterAlgorithms(sequentialAlgs);
   const filteredPar = filterAlgorithms(parallelAlgs);
 
+  // If active algorithm is in truncated sequential portion, auto-expand or keep visible
+  const displayedSeq = (() => {
+    if (searchQuery.trim() !== "" || showAllSeq) {
+      return filteredSeq;
+    }
+    const initialList = filteredSeq.slice(0, INITIAL_SEQ_COUNT);
+    const activeInSeq = filteredSeq.find((a) => a.id === activeAlgorithmId);
+    if (activeInSeq && !initialList.some((a) => a.id === activeAlgorithmId)) {
+      return [...initialList, activeInSeq];
+    }
+    return initialList;
+  })();
+
   return (
     <div
       id="app-sidebar"
@@ -66,7 +81,7 @@ export function Sidebar({
             </div>
             <div>
               <span className="font-semibold text-zinc-100 text-sm tracking-tight block leading-none">
-                AlgoAnimate
+                Algorand
               </span>
               <span className="text-[10px] text-zinc-500 font-mono">
                 SIMULATION v1.0
@@ -123,7 +138,7 @@ export function Sidebar({
                 : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/50"
             }`}
           >
-            <Home className="h-4 w-4 flex-shrink-0" />
+            <Home className="h-4 w-4 shrink-0" />
             {!isCollapsed && <span>Dashboard Overview</span>}
           </button>
         </div>
@@ -131,12 +146,15 @@ export function Sidebar({
         {/* Sequential Algorithms */}
         <div className="space-y-1.5">
           {!isCollapsed && (
-            <div className="px-3 text-[10px] font-mono tracking-widest text-zinc-500 uppercase">
-              Sequential Engines
+            <div className="flex items-center justify-between px-3 text-[10px] font-mono tracking-widest text-zinc-500 uppercase">
+              <span>Sequential Engines</span>
+              <span className="text-zinc-600 font-normal">
+                ({filteredSeq.length})
+              </span>
             </div>
           )}
           <div className="space-y-0.5">
-            {filteredSeq.map((alg) => (
+            {displayedSeq.map((alg) => (
               <button
                 key={alg.id}
                 onClick={() => {
@@ -150,7 +168,7 @@ export function Sidebar({
                 }`}
               >
                 <Layers
-                  className={`h-3.5 w-3.5 flex-shrink-0 ${activeAlgorithmId === alg.id ? "text-emerald-400" : "text-zinc-500"}`}
+                  className={`h-3.5 w-3.5 shrink-0 ${activeAlgorithmId === alg.id ? "text-emerald-400" : "text-zinc-500"}`}
                 />
                 {!isCollapsed && <span className="truncate">{alg.name}</span>}
               </button>
@@ -160,6 +178,26 @@ export function Sidebar({
                 No results
               </span>
             )}
+
+            {!isCollapsed &&
+              searchQuery.trim() === "" &&
+              filteredSeq.length > INITIAL_SEQ_COUNT && (
+                <button
+                  onClick={() => setShowAllSeq(!showAllSeq)}
+                  className="w-full flex items-center justify-between px-3 py-1.5 mt-1 text-[11px] font-mono text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 rounded-lg border border-dashed border-emerald-500/30 transition group"
+                >
+                  <span>
+                    {showAllSeq
+                      ? "Show Less"
+                      : `View More (${filteredSeq.length - INITIAL_SEQ_COUNT} more)`}
+                  </span>
+                  {showAllSeq ? (
+                    <ChevronUp className="h-3 w-3 transition-transform group-hover:-translate-y-0.5" />
+                  ) : (
+                    <ChevronDown className="h-3 w-3 transition-transform group-hover:translate-y-0.5" />
+                  )}
+                </button>
+              )}
           </div>
         </div>
 
@@ -185,7 +223,7 @@ export function Sidebar({
                 }`}
               >
                 <GitBranch
-                  className={`h-3.5 w-3.5 flex-shrink-0 ${activeAlgorithmId === alg.id ? "text-emerald-400" : "text-zinc-500"}`}
+                  className={`h-3.5 w-3.5 shrink-0 ${activeAlgorithmId === alg.id ? "text-emerald-400" : "text-zinc-500"}`}
                 />
                 {!isCollapsed && <span className="truncate">{alg.name}</span>}
               </button>
@@ -211,7 +249,7 @@ export function Sidebar({
               : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/50"
           }`}
         >
-          <Settings className="h-4 w-4 flex-shrink-0" />
+          <Settings className="h-4 w-4 shrink-0" />
           {!isCollapsed && <span>Preferences</span>}
         </button>
       </div>

@@ -1563,6 +1563,907 @@ export function generateEvents(
       break;
     }
 
+    case "prim": {
+      const graph = (input as GeneratorGraph) || getDefaultGraph();
+      const startNode = 0;
+      emit(
+        "HIGHLIGHT",
+        0,
+        `Initiating Prim's Minimum Spanning Tree from root node ${graph.nodes[startNode].label}`,
+      );
+
+      // Create undirected adjacency list
+      const undirectedAdjacencyList: {
+        [key: number]: { node: number; weight: number }[];
+      } = {};
+      graph.nodes.forEach((node) => {
+        undirectedAdjacencyList[node.id] = [];
+      });
+      Object.keys(graph.adjacencyList).forEach((key) => {
+        const u = parseInt(key, 10);
+        const neighbors = graph.adjacencyList[u] || [];
+        neighbors.forEach((edge) => {
+          const v = edge.node;
+          const weight = edge.weight;
+          if (!undirectedAdjacencyList[u].some((e) => e.node === v)) {
+            undirectedAdjacencyList[u].push({ node: v, weight });
+          }
+          if (!undirectedAdjacencyList[v].some((e) => e.node === u)) {
+            undirectedAdjacencyList[v].push({ node: u, weight });
+          }
+        });
+      });
+
+      const visited = new Set<number>();
+      visited.add(startNode);
+      const mstEdges: string[] = [];
+      let mstTotalWeight = 0;
+
+      // Min PQ simulation for edges (u, v, weight) crossing the cut
+      interface CandidateEdge {
+        u: number;
+        v: number;
+        weight: number;
+      }
+      let pq: CandidateEdge[] = [];
+
+      const addEdgesToPQ = (u: number) => {
+        const neighbors = undirectedAdjacencyList[u] || [];
+        for (const edge of neighbors) {
+          if (!visited.has(edge.node)) {
+            pq.push({ u, v: edge.node, weight: edge.weight });
+          }
+        }
+        pq.sort((a, b) => a.weight - b.weight);
+      };
+
+      addEdgesToPQ(startNode);
+
+      const getPrimPQState = (): string[] => {
+        return pq
+          .filter((e) => !visited.has(e.v))
+          .map(
+            (e) =>
+              `${graph.nodes[e.u].label}-${graph.nodes[e.v].label} (w:${e.weight})`,
+          );
+      };
+
+      emit(
+        "WRITE",
+        2,
+        `Added root node ${graph.nodes[startNode].label} to MST. Discovered candidate edges crossing cut.`,
+        {
+          nodeIds: Array.from(visited),
+          mstEdges: [...mstEdges],
+          mstTotalWeight,
+          queueState: getPrimPQState(),
+        },
+      );
+
+      while (visited.size < graph.nodes.length && pq.length > 0) {
+        // Pop min weight edge
+        const minEdge = pq.shift()!;
+        const { u, v, weight } = minEdge;
+
+        if (visited.has(v)) {
+          emit(
+            "HIGHLIGHT",
+            4,
+            `Skipping edge ${graph.nodes[u].label}-${graph.nodes[v].label} (w:${weight}) because node ${graph.nodes[v].label} is already in MST`,
+            {
+              nodeIds: Array.from(visited),
+              mstEdges: [...mstEdges],
+              mstTotalWeight,
+              queueState: getPrimPQState(),
+            },
+          );
+          continue;
+        }
+
+        const edgeId = u < v ? `${u}-${v}` : `${v}-${u}`;
+
+        emit(
+          "COMPARE",
+          5,
+          `Selected minimum cut edge ${graph.nodes[u].label}-${graph.nodes[v].label} with weight ${weight}`,
+          {
+            candidateEdge: edgeId,
+            nodeIds: Array.from(visited),
+            mstEdges: [...mstEdges],
+            mstTotalWeight,
+            queueState: getPrimPQState(),
+          },
+        );
+
+        visited.add(v);
+        mstEdges.push(edgeId);
+        mstTotalWeight += weight;
+
+        emit(
+          "WRITE",
+          7,
+          `Added node ${graph.nodes[v].label} and edge ${graph.nodes[u].label}-${graph.nodes[v].label} (w:${weight}) to MST. Total weight: ${mstTotalWeight}`,
+          {
+            nodeIds: Array.from(visited),
+            mstEdges: [...mstEdges],
+            mstTotalWeight,
+            queueState: getPrimPQState(),
+          },
+        );
+
+        addEdgesToPQ(v);
+      }
+
+      emit(
+        "HIGHLIGHT",
+        10,
+        `Prim's MST complete! Final Minimum Spanning Tree weight: ${mstTotalWeight}`,
+        {
+          nodeIds: Array.from(visited),
+          mstEdges: [...mstEdges],
+          mstTotalWeight,
+          queueState: [],
+        },
+      );
+      break;
+    }
+
+    case "kruskal": {
+      const graph = (input as GeneratorGraph) || getDefaultGraph();
+      emit(
+        "HIGHLIGHT",
+        0,
+        `Start Kruskal's Minimum Spanning Tree. Collecting and sorting all graph edges by weight.`,
+      );
+
+      // Collect all unique edges
+      interface GraphEdge {
+        u: number;
+        v: number;
+        weight: number;
+        id: string;
+      }
+      const edgeMap = new Map<string, GraphEdge>();
+
+      Object.keys(graph.adjacencyList).forEach((key) => {
+        const u = parseInt(key, 10);
+        const neighbors = graph.adjacencyList[u] || [];
+        neighbors.forEach((edge) => {
+          const v = edge.node;
+          const weight = edge.weight;
+          const id = u < v ? `${u}-${v}` : `${v}-${u}`;
+          if (!edgeMap.has(id)) {
+            edgeMap.set(id, { u, v, weight, id });
+          }
+        });
+      });
+
+      const sortedEdges = Array.from(edgeMap.values()).sort(
+        (a, b) => a.weight - b.weight,
+      );
+
+      // Disjoint Set Union (Union-Find)
+      const parent: { [key: number]: number } = {};
+      graph.nodes.forEach((n) => {
+        parent[n.id] = n.id;
+      });
+
+      const find = (i: number): number => {
+        if (parent[i] === i) return i;
+        parent[i] = find(parent[i]);
+        return parent[i];
+      };
+
+      const union = (i: number, j: number) => {
+        const rootI = find(i);
+        const rootJ = find(j);
+        if (rootI !== rootJ) {
+          parent[rootI] = rootJ;
+        }
+      };
+
+      const getDisjointSetsSnapshot = () => {
+        const snapshot: { [key: number]: number } = {};
+        graph.nodes.forEach((n) => {
+          snapshot[n.id] = find(n.id);
+        });
+        return snapshot;
+      };
+
+      const mstEdges: string[] = [];
+      const rejectedEdges: string[] = [];
+      let mstTotalWeight = 0;
+
+      emit(
+        "HIGHLIGHT",
+        2,
+        `Sorted ${sortedEdges.length} edges ascending: ` +
+          sortedEdges
+            .map(
+              (e) =>
+                `${graph.nodes[e.u].label}-${graph.nodes[e.v].label}(w:${e.weight})`,
+            )
+            .join(", "),
+        {
+          disjointSets: getDisjointSetsSnapshot(),
+          mstEdges: [...mstEdges],
+          rejectedEdges: [...rejectedEdges],
+          mstTotalWeight,
+        },
+      );
+
+      for (const edge of sortedEdges) {
+        const { u, v, weight, id } = edge;
+        const uLabel = graph.nodes[u].label;
+        const vLabel = graph.nodes[v].label;
+
+        const rootU = find(u);
+        const rootV = find(v);
+
+        emit(
+          "COMPARE",
+          4,
+          `Inspect edge ${uLabel}-${vLabel} (weight ${weight}). Check if component set find(${uLabel}) [Set ${rootU}] != find(${vLabel}) [Set ${rootV}]`,
+          {
+            candidateEdge: id,
+            disjointSets: getDisjointSetsSnapshot(),
+            mstEdges: [...mstEdges],
+            rejectedEdges: [...rejectedEdges],
+            mstTotalWeight,
+          },
+        );
+
+        if (rootU !== rootV) {
+          union(u, v);
+          mstEdges.push(id);
+          mstTotalWeight += weight;
+
+          emit(
+            "WRITE",
+            6,
+            `Accepted edge ${uLabel}-${vLabel} (weight ${weight}) into MST! Connected sets ${rootU} and ${rootV}. Total weight: ${mstTotalWeight}`,
+            {
+              candidateEdge: id,
+              disjointSets: getDisjointSetsSnapshot(),
+              mstEdges: [...mstEdges],
+              rejectedEdges: [...rejectedEdges],
+              mstTotalWeight,
+            },
+          );
+        } else {
+          rejectedEdges.push(id);
+          emit(
+            "HIGHLIGHT",
+            8,
+            `Rejected edge ${uLabel}-${vLabel} (weight ${weight}) — endpoints belong to the same component set (${rootU}), adding it would create a cycle!`,
+            {
+              candidateEdge: id,
+              disjointSets: getDisjointSetsSnapshot(),
+              mstEdges: [...mstEdges],
+              rejectedEdges: [...rejectedEdges],
+              mstTotalWeight,
+            },
+          );
+        }
+      }
+
+      emit(
+        "HIGHLIGHT",
+        10,
+        `Kruskal's MST complete! Accepted ${mstEdges.length} edges. Total MST weight: ${mstTotalWeight}`,
+        {
+          disjointSets: getDisjointSetsSnapshot(),
+          mstEdges: [...mstEdges],
+          rejectedEdges: [...rejectedEdges],
+          mstTotalWeight,
+        },
+      );
+      break;
+    }
+
+    case "timsort": {
+      const arr = [...input] as number[];
+      const n = arr.length;
+
+      // Standard minRun calculation
+      const calcMinRun = (num: number): number => {
+        let r = 0;
+        let len = num;
+        if (len < 16) return Math.min(len, 4);
+        while (len >= 32) {
+          r |= len & 1;
+          len >>= 1;
+        }
+        return len + r;
+      };
+
+      const minRun = calcMinRun(n);
+
+      interface StackRun {
+        start: number;
+        len: number;
+      }
+
+      const runStack: StackRun[] = [];
+      const detectedRuns: { start: number; end: number; sorted: boolean }[] =
+        [];
+
+      const getStackSnapshot = () => runStack.map((r) => ({ ...r }));
+      const getDetectedRunsSnapshot = () => detectedRuns.map((r) => ({ ...r }));
+
+      emit(
+        "HIGHLIGHT",
+        0,
+        `Start Timsort on array of size ${n}: [${arr.join(", ")}]. Calculated minRun = ${minRun}.`,
+        {
+          arraySnapshot: [...arr],
+          timsortData: {
+            runSize: minRun,
+            minRun,
+            runs: [],
+            runStack: [],
+            stackAction: "INIT",
+          },
+        },
+      );
+
+      const mergeRunsInArray = (left: number, mid: number, right: number) => {
+        const leftArr = arr.slice(left, mid + 1);
+        const rightArr = arr.slice(mid + 1, right + 1);
+        let li = 0,
+          ri = 0,
+          k = left;
+
+        while (li < leftArr.length && ri < rightArr.length) {
+          emit(
+            "COMPARE",
+            9,
+            `Merge step: compare left item ${leftArr[li]} with right item ${rightArr[ri]}`,
+            {
+              indices: [left + li, mid + 1 + ri],
+              arraySnapshot: [...arr],
+              timsortData: {
+                runSize: minRun,
+                minRun,
+                runs: getDetectedRunsSnapshot(),
+                runStack: getStackSnapshot(),
+                mergeRange: [left, mid, right],
+              },
+            },
+          );
+
+          if (leftArr[li] <= rightArr[ri]) {
+            arr[k] = leftArr[li];
+            li++;
+          } else {
+            arr[k] = rightArr[ri];
+            ri++;
+          }
+
+          emit("WRITE", 10, `Placed ${arr[k]} into merged index A[${k}]`, {
+            indices: [k],
+            arraySnapshot: [...arr],
+            timsortData: {
+              runSize: minRun,
+              minRun,
+              runs: getDetectedRunsSnapshot(),
+              runStack: getStackSnapshot(),
+              mergeRange: [left, mid, right],
+            },
+          });
+          k++;
+        }
+
+        while (li < leftArr.length) {
+          arr[k] = leftArr[li];
+          emit(
+            "WRITE",
+            10,
+            `Placed remaining left element ${arr[k]} into A[${k}]`,
+            {
+              indices: [k],
+              arraySnapshot: [...arr],
+              timsortData: {
+                runSize: minRun,
+                minRun,
+                runs: getDetectedRunsSnapshot(),
+                runStack: getStackSnapshot(),
+                mergeRange: [left, mid, right],
+              },
+            },
+          );
+          li++;
+          k++;
+        }
+
+        while (ri < rightArr.length) {
+          arr[k] = rightArr[ri];
+          emit(
+            "WRITE",
+            10,
+            `Placed remaining right element ${arr[k]} into A[${k}]`,
+            {
+              indices: [k],
+              arraySnapshot: [...arr],
+              timsortData: {
+                runSize: minRun,
+                minRun,
+                runs: getDetectedRunsSnapshot(),
+                runStack: getStackSnapshot(),
+                mergeRange: [left, mid, right],
+              },
+            },
+          );
+          ri++;
+          k++;
+        }
+      };
+
+      let i = 0;
+      while (i < n) {
+        const runStart = i;
+        let runEnd = i;
+
+        // 1. Detect natural ascending or descending run
+        if (i < n - 1) {
+          if (arr[i + 1] >= arr[i]) {
+            // Ascending natural run
+            runEnd = i + 1;
+            while (runEnd < n - 1 && arr[runEnd + 1] >= arr[runEnd]) {
+              runEnd++;
+            }
+            emit(
+              "HIGHLIGHT",
+              1,
+              `Detected natural ascending run from index ${runStart} to ${runEnd}: [${arr.slice(runStart, runEnd + 1).join(", ")}]`,
+              {
+                arraySnapshot: [...arr],
+                timsortData: {
+                  runSize: minRun,
+                  minRun,
+                  runs: [
+                    ...getDetectedRunsSnapshot(),
+                    { start: runStart, end: runEnd, sorted: true },
+                  ],
+                  runStack: getStackSnapshot(),
+                  stackAction: "NATURAL_RUN_ASCENDING",
+                },
+              },
+            );
+          } else {
+            // Strictly descending natural run -> reverse in-place
+            runEnd = i + 1;
+            while (runEnd < n - 1 && arr[runEnd + 1] < arr[runEnd]) {
+              runEnd++;
+            }
+            emit(
+              "HIGHLIGHT",
+              2,
+              `Detected natural descending run from index ${runStart} to ${runEnd}: [${arr.slice(runStart, runEnd + 1).join(", ")}]. Reversing run in-place to ascending...`,
+              {
+                arraySnapshot: [...arr],
+                timsortData: {
+                  runSize: minRun,
+                  minRun,
+                  runs: [
+                    ...getDetectedRunsSnapshot(),
+                    { start: runStart, end: runEnd, sorted: false },
+                  ],
+                  runStack: getStackSnapshot(),
+                  stackAction: "NATURAL_RUN_DESCENDING",
+                },
+              },
+            );
+
+            // Reverse in place
+            let l = runStart;
+            let r = runEnd;
+            while (l < r) {
+              const temp = arr[l];
+              arr[l] = arr[r];
+              arr[r] = temp;
+              emit("WRITE", 3, `Reversing run: Swapped index ${l} and ${r}`, {
+                indices: [l, r],
+                arraySnapshot: [...arr],
+                timsortData: {
+                  runSize: minRun,
+                  minRun,
+                  runs: [
+                    ...getDetectedRunsSnapshot(),
+                    { start: runStart, end: runEnd, sorted: true },
+                  ],
+                  runStack: getStackSnapshot(),
+                  stackAction: "REVERSING",
+                },
+              });
+              l++;
+              r--;
+            }
+          }
+        }
+
+        // 2. Extend run if length < minRun using Insertion Sort
+        const currentLen = runEnd - runStart + 1;
+        if (currentLen < minRun && runStart + minRun <= n) {
+          const targetEnd = Math.min(runStart + minRun - 1, n - 1);
+          emit(
+            "HIGHLIGHT",
+            4,
+            `Natural run length (${currentLen}) is smaller than minRun (${minRun}). Extending run [${runStart}..${targetEnd}] with Insertion Sort`,
+            {
+              arraySnapshot: [...arr],
+              timsortData: {
+                runSize: minRun,
+                minRun,
+                runs: [
+                  ...getDetectedRunsSnapshot(),
+                  { start: runStart, end: targetEnd, sorted: false },
+                ],
+                runStack: getStackSnapshot(),
+                stackAction: "EXTENDING_RUN",
+              },
+            },
+          );
+
+          for (let k = runStart + 1; k <= targetEnd; k++) {
+            const key = arr[k];
+            let j = k - 1;
+            while (j >= runStart && arr[j] > key) {
+              emit(
+                "COMPARE",
+                5,
+                `Insertion Sort on extended run: compare key (${key}) with A[${j}] (${arr[j]})`,
+                {
+                  indices: [j, j + 1],
+                  arraySnapshot: [...arr],
+                  timsortData: {
+                    runSize: minRun,
+                    minRun,
+                    runs: [
+                      ...getDetectedRunsSnapshot(),
+                      { start: runStart, end: targetEnd, sorted: false },
+                    ],
+                    runStack: getStackSnapshot(),
+                    stackAction: "EXTENDING_RUN",
+                  },
+                },
+              );
+              arr[j + 1] = arr[j];
+              j--;
+            }
+            arr[j + 1] = key;
+          }
+          runEnd = targetEnd;
+        }
+
+        const finalRunLen = runEnd - runStart + 1;
+        detectedRuns.push({ start: runStart, end: runEnd, sorted: true });
+
+        // 3. Push Run to Timsort Stack
+        runStack.push({ start: runStart, len: finalRunLen });
+        emit(
+          "HIGHLIGHT",
+          6,
+          `Pushing Run [${runStart}..${runEnd}] (length ${finalRunLen}) to Timsort Run Stack.`,
+          {
+            arraySnapshot: [...arr],
+            timsortData: {
+              runSize: minRun,
+              minRun,
+              runs: getDetectedRunsSnapshot(),
+              runStack: getStackSnapshot(),
+              stackAction: "PUSH_STACK",
+            },
+          },
+        );
+
+        // 4. Enforce Timsort Merge Invariants on Stack
+        // Invariant 1: stack[i-2].len > stack[i-1].len + stack[i].len
+        // Invariant 2: stack[i-1].len > stack[i].len
+        while (runStack.length > 1) {
+          const top = runStack.length - 1;
+          let mergeIndex = -1;
+
+          if (
+            top >= 2 &&
+            runStack[top - 2].len <= runStack[top - 1].len + runStack[top].len
+          ) {
+            if (runStack[top - 2].len < runStack[top].len) {
+              mergeIndex = top - 2;
+            } else {
+              mergeIndex = top - 1;
+            }
+          } else if (runStack[top - 1].len <= runStack[top].len) {
+            mergeIndex = top - 1;
+          }
+
+          if (mergeIndex >= 0) {
+            const r1 = runStack[mergeIndex];
+            const r2 = runStack[mergeIndex + 1];
+            emit(
+              "HIGHLIGHT",
+              7,
+              `Stack Invariant Violated! Merging stack runs: [${r1.start}..${r1.start + r1.len - 1}] (len ${r1.len}) and [${r2.start}..${r2.start + r2.len - 1}] (len ${r2.len})`,
+              {
+                arraySnapshot: [...arr],
+                timsortData: {
+                  runSize: minRun,
+                  minRun,
+                  runs: getDetectedRunsSnapshot(),
+                  runStack: getStackSnapshot(),
+                  stackAction: "INVARIANT_VIOLATION",
+                  mergeRange: [
+                    r1.start,
+                    r1.start + r1.len - 1,
+                    r2.start + r2.len - 1,
+                  ],
+                },
+              },
+            );
+
+            mergeRunsInArray(
+              r1.start,
+              r1.start + r1.len - 1,
+              r2.start + r2.len - 1,
+            );
+
+            runStack.splice(mergeIndex, 2, {
+              start: r1.start,
+              len: r1.len + r2.len,
+            });
+
+            emit(
+              "HIGHLIGHT",
+              8,
+              `Merged stack runs into single run [${r1.start}..${r1.start + r1.len + r2.len - 1}] (len ${r1.len + r2.len})`,
+              {
+                arraySnapshot: [...arr],
+                timsortData: {
+                  runSize: minRun,
+                  minRun,
+                  runs: getDetectedRunsSnapshot(),
+                  runStack: getStackSnapshot(),
+                  stackAction: "STACK_MERGED",
+                },
+              },
+            );
+          } else {
+            break;
+          }
+        }
+
+        i = runEnd + 1;
+      }
+
+      // 5. Force collapse remaining runs on stack
+      while (runStack.length > 1) {
+        const top = runStack.length - 1;
+        let mergeIndex = top - 1;
+        if (top >= 2 && runStack[top - 2].len < runStack[top].len) {
+          mergeIndex = top - 2;
+        }
+
+        const r1 = runStack[mergeIndex];
+        const r2 = runStack[mergeIndex + 1];
+
+        emit(
+          "HIGHLIGHT",
+          11,
+          `Final Force Merge: combining stack runs [${r1.start}..${r1.start + r1.len - 1}] and [${r2.start}..${r2.start + r2.len - 1}]`,
+          {
+            arraySnapshot: [...arr],
+            timsortData: {
+              runSize: minRun,
+              minRun,
+              runs: getDetectedRunsSnapshot(),
+              runStack: getStackSnapshot(),
+              stackAction: "FORCE_MERGE",
+              mergeRange: [
+                r1.start,
+                r1.start + r1.len - 1,
+                r2.start + r2.len - 1,
+              ],
+            },
+          },
+        );
+
+        mergeRunsInArray(
+          r1.start,
+          r1.start + r1.len - 1,
+          r2.start + r2.len - 1,
+        );
+
+        runStack.splice(mergeIndex, 2, {
+          start: r1.start,
+          len: r1.len + r2.len,
+        });
+      }
+
+      emit(
+        "HIGHLIGHT",
+        12,
+        `Timsort complete! Sorted array: [${arr.join(", ")}]`,
+        {
+          arraySnapshot: [...arr],
+          timsortData: {
+            runSize: minRun,
+            minRun,
+            runs: [{ start: 0, end: n - 1, sorted: true }],
+            runStack: getStackSnapshot(),
+            stackAction: "COMPLETE",
+          },
+        },
+      );
+      break;
+    }
+
+    case "greedy": {
+      // Fractional Knapsack Problem
+      const capacity = 50;
+      const initialItems = [
+        { id: 0, label: "Gold Dust", weight: 10, value: 60 },
+        { id: 1, label: "Silver Ingot", weight: 20, value: 100 },
+        { id: 2, label: "Gemstones", weight: 30, value: 120 },
+        { id: 3, label: "Bronze Coin", weight: 15, value: 45 },
+        { id: 4, label: "Copper Wire", weight: 25, value: 50 },
+        { id: 5, label: "Iron Ore", weight: 40, value: 40 },
+      ];
+
+      type ItemStatus =
+        | "unconsidered"
+        | "considering"
+        | "taken"
+        | "partially_taken"
+        | "skipped";
+
+      // Compute value/weight density
+      const items: {
+        id: number;
+        label: string;
+        weight: number;
+        value: number;
+        density: number;
+        fractionTaken: number;
+        status: ItemStatus;
+      }[] = initialItems.map((item) => ({
+        ...item,
+        density: item.value / item.weight,
+        fractionTaken: 0,
+        status: "unconsidered" as ItemStatus,
+      }));
+
+      emit(
+        "HIGHLIGHT",
+        0,
+        `Start Fractional Knapsack (Greedy Strategy). Capacity limit = ${capacity} kg. Computing value-to-weight density ratios for all items.`,
+        {
+          greedyData: {
+            capacity,
+            currentWeight: 0,
+            currentValue: 0,
+            items: items.map((i) => ({ ...i })),
+          },
+        },
+      );
+
+      // Sort items by density descending
+      items.sort((a, b) => b.density - a.density);
+
+      emit(
+        "HIGHLIGHT",
+        2,
+        `Sorted items descending by greedy density ratio (Value / Weight): ` +
+          items.map((i) => `${i.label} (${i.density.toFixed(1)})`).join(", "),
+        {
+          greedyData: {
+            capacity,
+            currentWeight: 0,
+            currentValue: 0,
+            items: items.map((i) => ({ ...i })),
+          },
+        },
+      );
+
+      let currentWeight = 0;
+      let currentValue = 0;
+
+      for (let idx = 0; idx < items.length; idx++) {
+        const item = items[idx];
+        item.status = "considering";
+
+        emit(
+          "COMPARE",
+          4,
+          `Evaluating item #${idx + 1}: ${item.label} (Weight: ${item.weight}kg, Value: $${item.value}, Density: $${item.density.toFixed(1)}/kg). Current capacity: ${currentWeight}/${capacity}kg.`,
+          {
+            greedyData: {
+              capacity,
+              currentWeight,
+              currentValue,
+              items: items.map((i) => ({ ...i })),
+            },
+          },
+        );
+
+        if (currentWeight + item.weight <= capacity) {
+          currentWeight += item.weight;
+          currentValue += item.value;
+          item.fractionTaken = 1.0;
+          item.status = "taken";
+
+          emit(
+            "WRITE",
+            7,
+            `Greedy Choice: Took 100% of ${item.label}! Added ${item.weight}kg, +$${item.value}. Total Weight: ${currentWeight}/${capacity}kg, Total Value: $${currentValue}.`,
+            {
+              greedyData: {
+                capacity,
+                currentWeight,
+                currentValue,
+                items: items.map((i) => ({ ...i })),
+              },
+            },
+          );
+        } else if (capacity - currentWeight > 0) {
+          const remaining = capacity - currentWeight;
+          const fraction = remaining / item.weight;
+          const addedValue = item.value * fraction;
+
+          currentWeight = capacity;
+          currentValue += addedValue;
+          item.fractionTaken = fraction;
+          item.status = "partially_taken";
+
+          emit(
+            "WRITE",
+            11,
+            `Knapsack Capacity Reached! Took ${(fraction * 100).toFixed(0)}% fraction of ${item.label} (Added ${remaining.toFixed(1)}kg, +$${addedValue.toFixed(1)}). Total Value: $${currentValue.toFixed(1)}.`,
+            {
+              greedyData: {
+                capacity,
+                currentWeight,
+                currentValue,
+                items: items.map((i) => ({ ...i })),
+              },
+            },
+          );
+          break;
+        } else {
+          item.status = "skipped";
+          emit("HIGHLIGHT", 13, `Knapsack is full! Skipping ${item.label}.`, {
+            greedyData: {
+              capacity,
+              currentWeight,
+              currentValue,
+              items: items.map((i) => ({ ...i })),
+            },
+          });
+        }
+      }
+
+      // Mark remaining unconsidered items as skipped
+      items.forEach((item) => {
+        if (item.status === "unconsidered" || item.status === "considering") {
+          item.status = "skipped";
+        }
+      });
+
+      emit(
+        "HIGHLIGHT",
+        15,
+        `Fractional Knapsack Complete! Total Value Achieved: $${currentValue.toFixed(1)}, Total Weight Used: ${currentWeight}/${capacity}kg.`,
+        {
+          greedyData: {
+            capacity,
+            currentWeight,
+            currentValue,
+            items: items.map((i) => ({ ...i })),
+          },
+        },
+      );
+      break;
+    }
+
     // --- PARALLEL ALGORITHMS ---
     case "parallel-reduction": {
       const arr = [...input] as number[];
@@ -1616,7 +2517,7 @@ export function generateEvents(
       emit(
         "HIGHLIGHT",
         0,
-        `Initialize Parallel Reduction. Input Size N = ${N}, Processors P = ${P} (${topology.toUpperCase()} Topology).`,
+        `Initialize Parallel Reduction. Input Size N = ${N}, Processors P = ${P} (${topology.toUpperCase()} Topology). Input Array: [${arr.join(", ")}].`,
         {
           arraySnapshot: [...arr],
           pValues: [...pValues],
@@ -2052,7 +2953,7 @@ export function generateEvents(
       emit(
         "HIGHLIGHT",
         0,
-        `Initialize Parallel Prefix Sum. Input Size N = ${N}, Processors P = ${P} (${topology.toUpperCase()} Topology).`,
+        `Initialize Parallel Prefix Sum. Input Size N = ${N}, Processors P = ${P} (${topology.toUpperCase()} Topology). Input Array: [${arr.join(", ")}].`,
         {
           arraySnapshot: [...arr],
           pValues: [...pValues],
